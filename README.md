@@ -282,16 +282,6 @@ Features:
 
 ---
 
-# ⚙ Environment Variables
-
-Create a .env file:
-
-PORT=5000
-DATABASE_URL=postgresql://postgres:password@localhost:5432/pulsebloom
-MONGO_URI=mongodb://localhost:27017/pulsebloom
-JWT_SECRET=supersecretkey
-
-Never commit .env to GitHub.
 
 ---
 
