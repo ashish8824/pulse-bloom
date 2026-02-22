@@ -2,140 +2,212 @@
 
 > Track your pulse. Bloom with intention.
 
-PulseBloom is a modern, AI-ready behavioral analytics backend built for high-performance professionals managing stress, productivity, and mental well-being.
+PulseBloom is a production-grade, AI-ready behavioral analytics backend designed for high-performance professionals managing stress, productivity, and emotional well-being.
 
-This backend powers a full-stack SaaS platform designed to:
+This backend powers a modern SaaS-style platform capable of mood tracking, statistical analytics, trend detection, and burnout risk modeling.
 
-- Track daily mood trends
-- Analyze emotional patterns
-- Detect burnout risk early
-- Provide actionable behavioral insights
+Built with scalable architecture, advanced backend logic, and production-level engineering standards.
 
-Built with scalable architecture, real analytics, and production-grade backend engineering.
+---
 
-# 🚀 What Makes PulseBloom Different?
+# 🚀 Product Vision
 
-Unlike basic CRUD trackers, PulseBloom includes:
+PulseBloom transforms simple mood logging into actionable behavioral intelligence.
+
+Instead of basic CRUD tracking, it provides:
 
 - 📊 Advanced Mood Analytics
 - 📈 Weekly Trend Analysis
-- 📉 Rolling 7-Day Averages
+- 📉 Rolling 7-Day Moving Averages
 - 🔥 Burnout Risk Scoring
 - 🔐 Secure JWT-based APIs
 - 🗄 Hybrid Database Architecture
-- 📘 Full OpenAPI (Swagger) Documentation
+- 📘 Fully documented OpenAPI (Swagger)
 
-This is not a demo project.This is a backend designed like a real SaaS product.
+This is not a tutorial backend.
+This is a SaaS-ready behavioral analytics engine.
 
-# 🏗 Architecture Overview
+---
 
-PulseBloom follows a **Modular Monolith + Clean Architecture pattern**.
+# 🏗 Architecture
 
-Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   Route → Controller → Service → Repository → Database   `
+PulseBloom follows a **Modular Monolith + Clean Architecture pattern**:
+
+Route → Controller → Service → Repository → Database
 
 This ensures:
 
 - Clear separation of concerns
+- Scalable feature modules
 - Testable business logic
-- Easy future microservice migration
+- Easy future migration to microservices
 - Production maintainability
 
-# 🧠 Core Capabilities
+## Folder Structure
 
-## 🔐 Authentication
+src/├── config/ # Environment, DB, Swagger config├── modules/ # Feature-based modules│ ├── auth/│ ├── mood/│ ├── habits/ (Upcoming)│ ├── ai/ (Upcoming)│ ├── community/ (Upcoming)│ └── challenges/ (Upcoming)├── middlewares/ # Auth, rate limit, error handling├── websocket/ # Real-time features (Upcoming)├── utils/ # JWT helpers, utilities├── types/ # TypeScript extensions├── app.ts└── server.ts
 
-- JWT-based authentication
-- 15-minute access tokens
-- Route-level protection middleware
-- Secure password hashing (bcrypt)
+---
 
-Endpoints:
+# 🔐 Authentication
 
-Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   POST /api/auth/registerPOST /api/auth/login   `
+PulseBloom uses JWT-based authentication.
 
-## 📊 Mood Tracking Engine
+### Register
 
-### Create Mood Entry
+POST /api/auth/register
 
-Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   POST /api/mood   `
+### Login
+
+POST /api/auth/login
+
+All protected routes require:
+
+Authorization: Bearer <token>
+
+- Access token expiry: 15 minutes
+- Password hashing: bcrypt (salt rounds: 10)
+
+---
+
+# 📊 Mood Module (Fully Implemented)
+
+The Mood Module is production-ready and analytics-enabled.
+
+## 1️⃣ Create Mood Entry
+
+POST /api/mood
+
+Body:
+{
+"moodScore": 4,
+"emoji": "😊",
+"journalText": "Had a productive day."
+}
 
 Stores:
 
 - Mood score (1–5)
-- Emoji representation
-- Journal entry (MongoDB)
-- Timestamped relational record (PostgreSQL)
+- Emoji
+- Journal text (MongoDB)
+- Structured relational record (PostgreSQL)
 
-## 📄 Paginated Mood History
+---
 
-Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   GET /api/mood?page=1&limit=10   `
+## 2️⃣ Paginated Mood History
+
+GET /api/mood?page=1&limit=10
 
 Includes:
 
 - Offset pagination
-- Metadata (total, totalPages)
-- Date-based filtering support
+- Metadata:
+  - total
+  - page
+  - limit
+  - totalPages
 
-## 📅 Date Filtering
+---
 
-Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   GET /api/mood?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD   `
+## 3️⃣ Date Filtering
+
+GET /api/mood?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD
 
 Supports:
 
-- Partial filtering
-- Combined with pagination
-- Analytics-aware filtering
+- startDate only
+- endDate only
+- combined filtering
+- pagination + filtering together
+
+---
 
 # 📈 Analytics Engine
 
-PulseBloom includes real analytical capabilities.
+PulseBloom includes real behavioral analytics.
 
-## 1️⃣ Mood Analytics
+## Mood Analytics
 
-Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   GET /api/mood/analytics   `
+GET /api/mood/analytics
 
 Returns:
 
-- Total entries
-- Average mood
-- Highest & lowest score
-- Most frequent mood
-- Distribution map (1–5)
+- totalEntries
+- averageMood
+- highestMood
+- lowestMood
+- mostFrequentMood
+- mood distribution (1–5 count)
 
-## 2️⃣ Weekly Trend Analysis
+Example:
+{
+"totalEntries": 20,
+"averageMood": 3.8,
+"highestMood": 5,
+"lowestMood": 1,
+"mostFrequentMood": 4,
+"distribution": {
+"1": 2,
+"2": 3,
+"3": 5,
+"4": 6,
+"5": 4
+}
+}
 
-Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   GET /api/mood/trends/weekly   `
+---
+
+## Weekly Trend Analysis
+
+GET /api/mood/trends/weekly
 
 Provides:
 
 - ISO week grouping
 - Weekly average scores
-- Dashboard-ready trend data
+- Entry count per week
+- Dashboard-ready data
 
-## 3️⃣ Rolling 7-Day Average
+---
 
-Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   GET /api/mood/trends/rolling   `
+## Rolling 7-Day Average
 
-Returns:
+GET /api/mood/trends/rolling
 
-- Smoothed moving average
-- Time-series visualization data
-- Ideal for productivity dashboards
+Returns smoothed moving averages for time-series visualization:
 
-## 4️⃣ Burnout Risk Scoring 🔥
+{
+"rollingAverage": [
+{
+"date": "2026-02-10",
+"averageMood": 3.57
+}
+]
+}
 
-Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   GET /api/mood/burnout-risk   `
+---
+
+## Burnout Risk Scoring 🔥
+
+GET /api/mood/burnout-risk
 
 Risk model considers:
 
 - Low mood frequency
 - Mood volatility
 - Average mood trend
-- Behavioral instability patterns
+- Emotional instability patterns
 
-Response:
-
-Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   {  "riskScore": 8.5,  "riskLevel": "Moderate",  "metrics": {    "averageMood": 2.9,    "lowMoodDays": 4,    "volatility": 3  }}   `
+Example response:
+{
+"riskScore": 8.5,
+"riskLevel": "Moderate",
+"metrics": {
+"averageMood": 2.9,
+"lowMoodDays": 4,
+"volatility": 3
+}
+}
 
 Risk Levels:
 
@@ -143,11 +215,13 @@ Risk Levels:
 - 6–10 → Moderate
 - 10+ → High
 
-This transforms simple mood logging into behavioral intelligence.
+This converts raw mood logs into predictive behavioral intelligence.
+
+---
 
 # 🗄 Hybrid Database Architecture
 
-## PostgreSQL (Structured Analytics)
+## PostgreSQL (Structured Data)
 
 Stores:
 
@@ -156,92 +230,130 @@ Stores:
 - Aggregation-ready records
 - Future streak logic
 
-Ideal for:
+Used for:
 
-- Pagination
 - Filtering
-- Statistical computation
+- Pagination
+- Statistical calculations
+- Analytics
 
-## MongoDB (Flexible Journaling)
+## MongoDB (Unstructured Data)
 
 Stores:
 
-- Journal text
-- AI-ready content
-- Future insight cache
-- Community posts (upcoming)
+- Journal entries
+- AI-ready text
+- Future insights cache
+- Community posts (Upcoming)
 
 Optimized for:
 
-- Text-heavy data
+- Flexible schemas
+- Text-heavy storage
 - AI model integration
-- Flexible schema evolution
 
-# 🔐 Security & Reliability
+---
 
-- bcrypt hashing (salt rounds: 10)
-- JWT access control
+# 🛡 Security & Reliability
+
+- bcrypt password hashing
+- JWT-based authentication
+- Route-level protection middleware
+- Global centralized error handler
 - Express rate limiting (100 req / 15 min)
 - Helmet security headers
-- CORS support
-- Centralized global error handler
-- Environment variable isolation
+- CORS enabled
+- Environment variable protection
+
+---
 
 # 📘 API Documentation
 
-Interactive Swagger UI available at:
+Interactive Swagger documentation:
 
-Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   http://localhost:5000/api-docs   `
+http://localhost:5000/api-docs
 
 Features:
 
-- Bearer token authorization
-- Structured request/response models
-- Organized by feature modules
+- Bearer token authentication
+- Structured request/response schemas
+- Organized by feature module
 - Real-time API testing
 
-# ⚙ Local Development Setup
+---
 
-## 1️⃣ Clone
+# ⚙ Environment Variables
 
-Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   git clone cd pulsebloom-backend   `
+Create a .env file:
 
-## 2️⃣ Install
+PORT=5000
+DATABASE_URL=postgresql://postgres:password@localhost:5432/pulsebloom
+MONGO_URI=mongodb://localhost:27017/pulsebloom
+JWT_SECRET=supersecretkey
 
-Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   npm install   `
+Never commit .env to GitHub.
 
-## 3️⃣ Setup Environment
+---
 
-Create .env:
+# 🛠 Local Development Setup
 
-Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   PORT=5000DATABASE_URL=postgresql://postgres:password@localhost:5432/pulsebloomMONGO_URI=mongodb://localhost:27017/pulsebloomJWT_SECRET=supersecretkey   `
+## 1️⃣ Clone Repository
 
-## 4️⃣ Run Migration
+git clone <your-repository-url>
+cd pulsebloom-backend
 
-Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   npx prisma migrate dev --name init   `
+## 2️⃣ Install Dependencies
 
-## 5️⃣ Start Server
+npm install
 
-Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   npm run dev   `
+## 3️⃣ Setup PostgreSQL
+
+CREATE DATABASE pulsebloom;
+
+Run migration:
+npx prisma migrate dev --name init
+
+## 4️⃣ Start MongoDB
+
+Ensure MongoDB is running locally.
+
+## 5️⃣ Start Development Server
+
+npm run dev
 
 Server runs at:
+http://localhost:5000
 
-Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   http://localhost:5000   `
+---
 
 # 📦 Current Feature Status
 
-FeatureStatusAuthentication✅ CompleteProtected Routes✅ CompleteMood CRUD✅ CompletePagination✅ CompleteDate Filtering✅ CompleteAnalytics✅ CompleteWeekly Trends✅ CompleteRolling Average✅ CompleteBurnout Risk Scoring✅ CompleteSwagger Docs✅ CompleteHybrid DB Architecture✅ Complete
+Authentication — ✅ Complete  
+Protected Routes — ✅ Complete  
+Mood CRUD — ✅ Complete  
+Pagination — ✅ Complete  
+Date Filtering — ✅ Complete  
+Analytics — ✅ Complete  
+Weekly Trends — ✅ Complete  
+Rolling Average — ✅ Complete  
+Burnout Risk Scoring — ✅ Complete  
+Swagger Documentation — ✅ Complete  
+Hybrid DB Architecture — ✅ Complete
 
-# 🔮 Upcoming Product Evolution
+---
 
-- Habit Tracking Engine (Streak Logic)
-- AI-Powered Personalized Insights
-- Community Posting System
-- Challenge & Goal System
-- WebSocket Real-Time Updates
-- Docker Containerization
-- AWS Deployment
-- Redis Caching Layer
+# 🔮 Upcoming Features
+
+- Habit tracking with streak engine
+- AI-powered personalized insights
+- Anonymous community posts
+- Challenge system
+- WebSocket real-time updates
+- Docker containerization
+- AWS deployment
+- Redis caching
+
+---
 
 # 📈 Resume Impact
 
@@ -249,20 +361,29 @@ PulseBloom demonstrates:
 
 - Clean architecture design
 - Hybrid database strategy
-- Analytical backend logic
+- Time-series analytics
 - Statistical modeling
+- Burnout risk prediction
 - Production-level API documentation
 - Scalable backend engineering
 
-This is beyond CRUD.This is behavioral analytics backend engineering.
+This is beyond CRUD.
+This is behavioral analytics backend engineering.
+
+---
 
 # 👨‍💻 Author
 
-Ashish AnandBackend / MERN Developer
+Ashish Anand  
+Backend / MERN Developer
+
+---
 
 # 📜 License
 
 MIT License
+
+---
 
 # 🌸 PulseBloom
 
