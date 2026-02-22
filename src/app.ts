@@ -4,8 +4,10 @@ import helmet from "helmet";
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./config/swagger";
 import rateLimit from "express-rate-limit";
+import { errorHandler } from "./middlewares/error.middleware";
 
 import authRoutes from "./modules/auth/auth.routes";
+import moodRoutes from "./modules/mood/mood.routes";
 
 const app = express();
 
@@ -43,5 +45,9 @@ app.get("/health", (req, res) => {
 });
 
 app.use("/api/auth", authRoutes);
+app.use("/api/mood", moodRoutes);
+
+// Must be after routes
+app.use(errorHandler);
 
 export default app;

@@ -48,24 +48,25 @@ PulseBloom follows a **Modular Monolith + Clean Architecture pattern**.
 Route → Controller → Service → Repository → Database
 
 Folder Structure:
+
 src/
 │
-├── config/ # DB, environment, swagger configuration
-├── modules/ # Feature-based modules (auth, mood, habits, etc.)
-│ ├── auth/
-│ ├── mood/
-│ ├── habits/
-│ ├── ai/
-│ ├── community/
-│ └── challenges/
+├── config/ # Database, environment variables, Swagger configuration
+├── modules/ # Feature-based modules
+│ ├── auth/ # Authentication & authorization logic
+│ ├── mood/ # Mood tracking features
+│ ├── habits/ # Habit tracking system
+│ ├── ai/ # AI-related services and integrations
+│ ├── community/ # Community & social features
+│ └── challenges/ # Challenges and gamification logic
 │
-├── middlewares/ # Auth, error handling, rate limiting
-├── websocket/ # Socket.io setup
-├── utils/ # JWT, helpers, logger
-├── types/ # Express extensions
+├── middlewares/ # Authentication, error handling, rate limiting
+├── websocket/ # Socket.io configuration and real-time features
+├── utils/ # JWT utilities, helpers, logger
+├── types/ # TypeScript type extensions (e.g., Express types)
 │
 ├── app.ts # Express app configuration
-└── server.ts # Server entry point
+└── server.ts # Application entry point
 
 This structure ensures:
 
