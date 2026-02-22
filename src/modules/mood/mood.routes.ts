@@ -2,9 +2,11 @@ import { Router } from "express";
 import { protect } from "../../middlewares/auth.middleware";
 import {
   createMood,
+  getBurnoutRisk,
   getMoodAnalyticsController,
   getMoodAnalyticsController,
   getMoods,
+  getRollingAverage,
   getWeeklyTrend,
 } from "./mood.controller";
 
@@ -222,5 +224,63 @@ router.get("/analytics", protect, getMoodAnalyticsController);
  *         description: Weekly trend data
  */
 router.get("/trends/weekly", protect, getWeeklyTrend);
+
+/**
+ * @swagger
+ * /api/mood/trends/rolling:
+ *   get:
+ *     summary: Get rolling 7-day average mood
+ *     description: Returns rolling 7-day moving average of mood scores.
+ *     tags: [Mood]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *           example: 2026-01-01
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *           example: 2026-02-28
+ *     responses:
+ *       200:
+ *         description: Rolling average data
+ */
+router.get("/trends/rolling", protect, getRollingAverage);
+
+/**
+ * @swagger
+ * /api/mood/burnout-risk:
+ *   get:
+ *     summary: Calculate burnout risk score
+ *     description: |
+ *       Calculates burnout risk based on mood trends,
+ *       low mood frequency, volatility and average score.
+ *     tags: [Mood]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: startDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *           example: 2026-01-01
+ *       - in: query
+ *         name: endDate
+ *         schema:
+ *           type: string
+ *           format: date
+ *           example: 2026-02-28
+ *     responses:
+ *       200:
+ *         description: Burnout risk result
+ */
+router.get("/burnout-risk", protect, getBurnoutRisk);
 
 export default router;

@@ -114,3 +114,31 @@ export const getMoodsForTrend = async (
     orderBy: { createdAt: "asc" },
   });
 };
+
+/**
+ * Fetch moods sorted by date for rolling average
+ */
+export const getMoodsForRollingAverage = async (
+  userId: string,
+  startDate?: string,
+  endDate?: string,
+) => {
+  const whereClause: any = { userId };
+
+  if (startDate || endDate) {
+    whereClause.createdAt = {};
+
+    if (startDate) {
+      whereClause.createdAt.gte = new Date(startDate);
+    }
+
+    if (endDate) {
+      whereClause.createdAt.lte = new Date(endDate);
+    }
+  }
+
+  return prisma.moodEntry.findMany({
+    where: whereClause,
+    orderBy: { createdAt: "asc" },
+  });
+};

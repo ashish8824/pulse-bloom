@@ -1,315 +1,268 @@
 # 🌸 PulseBloom Backend
 
-AI-Powered Mood & Habit Tracking Platform Backend
+> Track your pulse. Bloom with intention.
 
-PulseBloom is a privacy-focused, AI-enhanced behavioral tracking system designed for high-performance professionals managing stress, habits, and productivity.
+PulseBloom is a modern, AI-ready behavioral analytics backend built for high-performance professionals managing stress, productivity, and mental well-being.
 
-This repository contains the backend API built using Node.js, Express, TypeScript, PostgreSQL, MongoDB, and Swagger.
+This backend powers a full-stack SaaS platform designed to:
 
----
+- Track daily mood trends
+- Analyze emotional patterns
+- Detect burnout risk early
+- Provide actionable behavioral insights
 
-# 🚀 Tech Stack
+Built with scalable architecture, real analytics, and production-grade backend engineering.
 
-## Core Backend
+# 🚀 What Makes PulseBloom Different?
 
-- Node.js
-- Express.js
-- TypeScript
+Unlike basic CRUD trackers, PulseBloom includes:
 
-## Databases
+- 📊 Advanced Mood Analytics
+- 📈 Weekly Trend Analysis
+- 📉 Rolling 7-Day Averages
+- 🔥 Burnout Risk Scoring
+- 🔐 Secure JWT-based APIs
+- 🗄 Hybrid Database Architecture
+- 📘 Full OpenAPI (Swagger) Documentation
 
-- PostgreSQL (Relational Data)
-- Prisma ORM
-- MongoDB (Unstructured Data / AI Cache)
-- Mongoose
+This is not a demo project.This is a backend designed like a real SaaS product.
 
-## Security
-
-- JWT Authentication
-- bcrypt Password Hashing
-- Helmet
-- CORS
-- Express Rate Limiting
-
-## Documentation
-
-- Swagger (OpenAPI 3.0)
-
-## Real-time (Upcoming)
-
-- Socket.io
-
----
-
-# 🏗 Architecture
+# 🏗 Architecture Overview
 
 PulseBloom follows a **Modular Monolith + Clean Architecture pattern**.
 
-Route → Controller → Service → Repository → Database
+Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   Route → Controller → Service → Repository → Database   `
 
-Folder Structure:
+This ensures:
 
-src/
-│
-├── config/ # Database, environment variables, Swagger configuration
-├── modules/ # Feature-based modules
-│ ├── auth/ # Authentication & authorization logic
-│ ├── mood/ # Mood tracking features
-│ ├── habits/ # Habit tracking system
-│ ├── ai/ # AI-related services and integrations
-│ ├── community/ # Community & social features
-│ └── challenges/ # Challenges and gamification logic
-│
-├── middlewares/ # Authentication, error handling, rate limiting
-├── websocket/ # Socket.io configuration and real-time features
-├── utils/ # JWT utilities, helpers, logger
-├── types/ # TypeScript type extensions (e.g., Express types)
-│
-├── app.ts # Express app configuration
-└── server.ts # Application entry point
-
-This structure ensures:
-
-- Scalability
-- Maintainability
 - Clear separation of concerns
-- Production readiness
-- Easy transition to microservices in future
+- Testable business logic
+- Easy future microservice migration
+- Production maintainability
 
----
+# 🧠 Core Capabilities
 
-# 🔐 Authentication
+## 🔐 Authentication
 
-PulseBloom uses JWT-based authentication.
+- JWT-based authentication
+- 15-minute access tokens
+- Route-level protection middleware
+- Secure password hashing (bcrypt)
 
-## Register
+Endpoints:
 
-POST /api/auth/register
+Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   POST /api/auth/registerPOST /api/auth/login   `
 
-## Login
+## 📊 Mood Tracking Engine
 
-POST /api/auth/login
+### Create Mood Entry
 
-All protected routes require:
+Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   POST /api/mood   `
 
-Authorization: Bearer <token>
+Stores:
 
-Token expiration: 15 minutes.
+- Mood score (1–5)
+- Emoji representation
+- Journal entry (MongoDB)
+- Timestamped relational record (PostgreSQL)
 
-Protected routes are secured using middleware that verifies and decodes JWT tokens.
+## 📄 Paginated Mood History
 
----
+Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   GET /api/mood?page=1&limit=10   `
 
-# 📘 API Documentation
+Includes:
 
-Swagger UI available at:
+- Offset pagination
+- Metadata (total, totalPages)
+- Date-based filtering support
 
-http://localhost:5000/api-docs
+## 📅 Date Filtering
 
-Features:
+Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   GET /api/mood?startDate=YYYY-MM-DD&endDate=YYYY-MM-DD   `
 
-- Interactive API testing
-- Bearer token authentication support
-- Request/response schema documentation
-- Organized tags per module
+Supports:
 
----
+- Partial filtering
+- Combined with pagination
+- Analytics-aware filtering
 
-# 🗄 Database Design
+# 📈 Analytics Engine
 
-## PostgreSQL (Structured Data)
+PulseBloom includes real analytical capabilities.
+
+## 1️⃣ Mood Analytics
+
+Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   GET /api/mood/analytics   `
+
+Returns:
+
+- Total entries
+- Average mood
+- Highest & lowest score
+- Most frequent mood
+- Distribution map (1–5)
+
+## 2️⃣ Weekly Trend Analysis
+
+Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   GET /api/mood/trends/weekly   `
+
+Provides:
+
+- ISO week grouping
+- Weekly average scores
+- Dashboard-ready trend data
+
+## 3️⃣ Rolling 7-Day Average
+
+Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   GET /api/mood/trends/rolling   `
+
+Returns:
+
+- Smoothed moving average
+- Time-series visualization data
+- Ideal for productivity dashboards
+
+## 4️⃣ Burnout Risk Scoring 🔥
+
+Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   GET /api/mood/burnout-risk   `
+
+Risk model considers:
+
+- Low mood frequency
+- Mood volatility
+- Average mood trend
+- Behavioral instability patterns
+
+Response:
+
+Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   {  "riskScore": 8.5,  "riskLevel": "Moderate",  "metrics": {    "averageMood": 2.9,    "lowMoodDays": 4,    "volatility": 3  }}   `
+
+Risk Levels:
+
+- 0–5 → Low
+- 6–10 → Moderate
+- 10+ → High
+
+This transforms simple mood logging into behavioral intelligence.
+
+# 🗄 Hybrid Database Architecture
+
+## PostgreSQL (Structured Analytics)
 
 Stores:
 
 - Users
-- Habits
-- Habit Logs
-- Mood Entries
-- Challenges
-- Challenge Participants
+- Mood entries
+- Aggregation-ready records
+- Future streak logic
 
-Managed using Prisma ORM.
+Ideal for:
 
-Benefits:
+- Pagination
+- Filtering
+- Statistical computation
 
-- Strong relational queries
-- Efficient streak calculations
-- Aggregations & reporting
-
-## MongoDB (Unstructured Data)
+## MongoDB (Flexible Journaling)
 
 Stores:
 
-- Journal entries
-- AI insights cache
-- Community posts
-- AI moderation flags
+- Journal text
+- AI-ready content
+- Future insight cache
+- Community posts (upcoming)
 
-Benefits:
+Optimized for:
 
-- Flexible schema
-- Optimized for text-heavy AI inputs
-- Fast caching of generated insights
+- Text-heavy data
+- AI model integration
+- Flexible schema evolution
 
----
+# 🔐 Security & Reliability
 
-# 🛡 Security Features
-
-- Password hashing with bcrypt (salt rounds: 10)
-- JWT-based authentication
-- Route protection middleware
-- Global centralized error handler
-- Rate limiting (100 requests / 15 minutes)
+- bcrypt hashing (salt rounds: 10)
+- JWT access control
+- Express rate limiting (100 req / 15 min)
 - Helmet security headers
-- CORS enabled
-- Environment variable protection
+- CORS support
+- Centralized global error handler
+- Environment variable isolation
 
----
+# 📘 API Documentation
 
-# ⚙ Environment Variables
+Interactive Swagger UI available at:
 
-Create a `.env` file in the root directory:
+Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   http://localhost:5000/api-docs   `
 
-PORT=5000  
-DATABASE_URL=postgresql://postgres:password@localhost:5432/pulsebloom  
-MONGO_URI=mongodb://localhost:27017/pulsebloom  
-JWT_SECRET=supersecretkey
+Features:
 
-Never commit `.env` to GitHub.
+- Bearer token authorization
+- Structured request/response models
+- Organized by feature modules
+- Real-time API testing
 
----
+# ⚙ Local Development Setup
 
-# 🛠 Installation & Setup
+## 1️⃣ Clone
 
-## 1️⃣ Clone Repository
+Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   git clone cd pulsebloom-backend   `
 
-git clone <your-repository-url>  
-cd pulsebloom-backend
+## 2️⃣ Install
 
-## 2️⃣ Install Dependencies
+Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   npm install   `
 
-npm install
+## 3️⃣ Setup Environment
 
-## 3️⃣ Setup PostgreSQL Database
+Create .env:
 
-Ensure PostgreSQL is running.
+Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   PORT=5000DATABASE_URL=postgresql://postgres:password@localhost:5432/pulsebloomMONGO_URI=mongodb://localhost:27017/pulsebloomJWT_SECRET=supersecretkey   `
 
-Create database:
+## 4️⃣ Run Migration
 
-CREATE DATABASE pulsebloom;
+Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   npx prisma migrate dev --name init   `
 
-Run Prisma migration:
+## 5️⃣ Start Server
 
-npx prisma migrate dev --name init
-
-## 4️⃣ Start MongoDB
-
-Ensure MongoDB service is running locally.
-
-## 5️⃣ Start Development Server
-
-npm run dev
+Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   npm run dev   `
 
 Server runs at:
 
-http://localhost:5000
+Plain textANTLR4BashCC#CSSCoffeeScriptCMakeDartDjangoDockerEJSErlangGitGoGraphQLGroovyHTMLJavaJavaScriptJSONJSXKotlinLaTeXLessLuaMakefileMarkdownMATLABMarkupObjective-CPerlPHPPowerShell.propertiesProtocol BuffersPythonRRubySass (Sass)Sass (Scss)SchemeSQLShellSwiftSVGTSXTypeScriptWebAssemblyYAMLXML`   http://localhost:5000   `
 
----
+# 📦 Current Feature Status
 
-# 🧪 Testing with Postman
+FeatureStatusAuthentication✅ CompleteProtected Routes✅ CompleteMood CRUD✅ CompletePagination✅ CompleteDate Filtering✅ CompleteAnalytics✅ CompleteWeekly Trends✅ CompleteRolling Average✅ CompleteBurnout Risk Scoring✅ CompleteSwagger Docs✅ CompleteHybrid DB Architecture✅ Complete
 
-## 1. Register User
+# 🔮 Upcoming Product Evolution
 
-POST /api/auth/register
+- Habit Tracking Engine (Streak Logic)
+- AI-Powered Personalized Insights
+- Community Posting System
+- Challenge & Goal System
+- WebSocket Real-Time Updates
+- Docker Containerization
+- AWS Deployment
+- Redis Caching Layer
 
-Body:
-{
-"email": "test@gmail.com",
-"password": "123456",
-"name": "Ashish"
-}
+# 📈 Resume Impact
 
-## 2. Login
+PulseBloom demonstrates:
 
-POST /api/auth/login
+- Clean architecture design
+- Hybrid database strategy
+- Analytical backend logic
+- Statistical modeling
+- Production-level API documentation
+- Scalable backend engineering
 
-Body:
-{
-"email": "test@gmail.com",
-"password": "123456"
-}
+This is beyond CRUD.This is behavioral analytics backend engineering.
 
-Copy returned JWT token.
+# 👨‍💻 Author
 
-## 3. Access Protected Route
-
-GET /api/protected
-
-Header:
-Authorization: Bearer <token>
-
----
-
-# 📊 Current Features
-
-✅ Industry-standard folder structure  
-✅ JWT Authentication  
-✅ Protected routes  
-✅ Swagger documentation  
-✅ PostgreSQL integration  
-✅ MongoDB integration  
-✅ Rate limiting  
-✅ Global error handling  
-✅ Clean architecture pattern
-
----
-
-# 🔜 Upcoming Features
-
-- Mood logging system
-- Habit tracking with streak logic
-- AI-powered insights (Gemini + HuggingFace)
-- Anonymous community posts
-- Challenge system with WebSocket updates
-- Docker containerization
-- AWS EC2 deployment
-- Redis caching (future scaling)
-
----
-
-# 🧠 Why Hybrid Database Architecture?
-
-PostgreSQL is ideal for structured, relational data such as streak calculations and user relationships.
-
-MongoDB is better suited for AI-generated content and flexible journal structures.
-
-This hybrid approach balances:
-
-- Performance
-- Scalability
-- Flexibility
-- Cost optimization
-
----
-
-# 📈 Resume Highlight
-
-Built a production-grade backend for an AI-powered behavioral tracking platform using Node.js, TypeScript, PostgreSQL (Prisma), MongoDB (Mongoose), JWT authentication, Swagger documentation, and scalable modular architecture.
-
----
-
-# 🧑‍💻 Author
-
-Ashish Anand  
-Backend / MERN Developer
-
----
+Ashish AnandBackend / MERN Developer
 
 # 📜 License
 
 MIT License
-
----
 
 # 🌸 PulseBloom
 

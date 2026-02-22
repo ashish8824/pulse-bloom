@@ -1,6 +1,7 @@
 import {
   createMoodEntry,
   getMoodAnalytics,
+  getMoodsForRollingAverage,
   getMoodsForTrend,
   getUserMoods,
 } from "./mood.repository";
@@ -153,4 +154,92 @@ export const calculateWeeklyTrend = async (
   }));
 
   return { weeklyTrends };
+};
+
+/**
+ * Calculate rolling 7-day average mood
+ */
+export const calculateRollingAverage = async (
+  userId: string,
+  startDate?: string,
+  endDate?: string,
+) => {
+  const moods = await getMoodsForRollingAverage(userId, startDate, endDate);
+
+  const rollingAverage: { date: string; averageMood: number }[] = [];
+
+  for (let i = 0; i < moods.length; i++) {
+    const currentDate = new Date(moods[i].createdAt);
+
+    // 7-day window
+    const windowStart = new Date(currentDate);
+    windowStart.setDate(windowStart.getDate() - 6);
+
+    const windowMoods = moods.filter((m) => {
+      const d = new Date(m.createdAt);
+      return d >= windowStart && d <= currentDate;
+    });
+
+    const sum = windowMoods.reduce((acc, m) => acc + m.moodScore, 0);
+
+    const avg = parseFloat((sum / windowMoods.length).toFixed(2));
+
+    rollingAverage.push({
+      date: currentDate.toISOString().split("T")[0],
+      averageMood: avg,
+    });
+  }
+
+  return { rollingAverage };
+};
+
+/**
+ * Calculate burnout risk score
+ */
+export const calculateBurnoutRisk = async (
+  userId: string,
+  startDate?: string,
+  endDate?: string,
+) => {
+  const moods = await getMoodAnalytics(userId, startDate, endDate);
+
+  if (moods.length === 0) {
+    return {
+      riskScore: 0,
+      riskLevel: "No Data",
+      insights: "Not enough data to calculate burnout risk.",
+    };
+  }
+
+  const totalEntries = moods.length;
+  const scores = moods.map((m) => m.moodScore);
+
+  const averageMood = scores.reduce((a, b) => a + b, 0) / totalEntries;
+
+  const lowMoodDays = scores.filter((s) => s <= 2).length;
+
+  const highest = Math.max(...scores);
+  const lowest = Math.min(...scores);
+  const volatility = highest - lowest;
+
+  const riskScore = lowMoodDays * 2 + (3 - averageMood) * 3 + volatility * 1.5;
+
+  let riskLevel = "Low";
+
+  if (riskScore > 10) {
+    riskLevel = "High";
+  } else if (riskScore > 5) {
+    riskLevel = "Moderate";
+  }
+
+  return {
+    riskScore: Number(riskScore.toFixed(2)),
+    riskLevel,
+    metrics: {
+      totalEntries,
+      averageMood: Number(averageMood.toFixed(2)),
+      lowMoodDays,
+      volatility,
+    },
+  };
 };
