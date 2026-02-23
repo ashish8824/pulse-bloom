@@ -8,6 +8,7 @@ import { errorHandler } from "./middlewares/error.middleware";
 
 import authRoutes from "./modules/auth/auth.routes";
 import moodRoutes from "./modules/mood/mood.routes";
+import habitRoutes from "./modules/habits/habit.routes";
 
 const app = express();
 
@@ -46,6 +47,7 @@ app.get("/health", (req, res) => {
 
 app.use("/api/auth", authRoutes);
 app.use("/api/mood", moodRoutes);
+app.use("/api/habits", habitRoutes);
 
 // Must be after routes
 app.use(errorHandler);
