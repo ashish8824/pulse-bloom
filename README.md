@@ -50,35 +50,140 @@ This ensures:
 ## Folder Structure
 
 ```
-src/
-├── config/
-│   ├── db.ts           # Prisma + PostgreSQL connection pool
-│   ├── mongo.ts        # MongoDB connection
-│   ├── env.ts          # Environment variable validation
-│   └── swagger.ts      # OpenAPI spec config
+pulsebloom-backend/
 │
-├── modules/
-│   ├── auth/           # Register, login, JWT
-│   ├── mood/           # Mood CRUD + analytics engine
-│   ├── habits/         # ✅ Full habit engine (see below)
-│   ├── ai/             # 🔮 Upcoming
-│   ├── community/      # 🔮 Upcoming
-│   └── challenges/     # 🔮 Upcoming
+├── src/
+│   │
+│   ├── config/                          # Global configuration
+│   │   ├── db.ts                        # Prisma client + PostgreSQL connection pool (pg adapter)
+│   │   ├── mongo.ts                     # MongoDB connection via Mongoose
+│   │   ├── env.ts                       # Environment variable loading + validation (dotenv)
+│   │   └── swagger.ts                   # OpenAPI 3.0 spec config (swagger-jsdoc)
+│   │
+│   ├── modules/                         # Feature-based modules (Clean Architecture)
+│   │   │
+│   │   ├── auth/                        # ✅ Authentication Module
+│   │   │   ├── auth.controller.ts       # HTTP layer — parses req, calls service, sends res
+│   │   │   ├── auth.service.ts          # Business logic — register, login, password hashing
+│   │   │   ├── auth.repository.ts       # DB layer — findUserByEmail, createUser (Prisma)
+│   │   │   ├── auth.routes.ts           # POST /api/auth/register, POST /api/auth/login
+│   │   │   └── auth.validation.ts       # Zod schemas — registerSchema, loginSchema
+│   │   │
+│   │   ├── mood/                        # ✅ Mood Tracking + Analytics Module
+│   │   │   ├── mood.controller.ts       # HTTP layer for all mood endpoints
+│   │   │   ├── mood.service.ts          # Analytics engine — trends, rolling avg, burnout risk
+│   │   │   ├── mood.repository.ts       # DB layer — PostgreSQL (mood entries) + MongoDB (journals)
+│   │   │   ├── mood.routes.ts           # GET/POST /api/mood + all analytics routes
+│   │   │   ├── mood.validation.ts       # Zod schemas — createMoodSchema
+│   │   │   └── mood.model.ts            # Mongoose schema for journal entries (MongoDB)
+│   │   │
+│   │   ├── habits/                      # ✅ Full Habit Engine Module
+│   │   │   ├── habit.controller.ts      # HTTP layer — all 15 habit endpoints
+│   │   │   ├── habit.service.ts         # Business logic:
+│   │   │   │                            #   • createHabit (duplicate guard)
+│   │   │   │                            #   • archiveHabit / restoreHabit (soft-delete)
+│   │   │   │                            #   • completeHabit (period normalization)
+│   │   │   │                            #   • undoLastCompletion
+│   │   │   │                            #   • reorderHabits (atomic transaction)
+│   │   │   │                            #   • calculateHabitStreak (DST-safe algorithm)
+│   │   │   │                            #   • calculateHabitAnalytics (consistency score)
+│   │   │   │                            #   • getMonthlyHabitSummary
+│   │   │   │                            #   • generateHabitHeatmap
+│   │   │   │                            #   • fetchPaginatedLogs
+│   │   │   │                            #   • updateReminder
+│   │   │   ├── habit.repository.ts      # DB layer — all Prisma queries (habits + logs)
+│   │   │   ├── habit.routes.ts          # All 15 routes with full Swagger JSDoc annotations
+│   │   │   └── habit.validation.ts      # Zod schemas:
+│   │   │                                #   • createHabitSchema
+│   │   │                                #   • updateHabitSchema
+│   │   │                                #   • completeHabitSchema
+│   │   │                                #   • reorderHabitsSchema
+│   │   │                                #   • reminderSchema
+│   │   │
+│   │   ├── ai/                          # 🔮 Upcoming — AI Insights Module
+│   │   │   └── (planned)               #   • GPT-powered habit + mood correlation analysis
+│   │   │                               #   • Personalized behavioral recommendations
+│   │   │                               #   • Burnout prediction model
+│   │   │
+│   │   ├── community/                   # 🔮 Upcoming — Anonymous Community Module
+│   │   │   └── (planned)               #   • Anonymous mood/habit milestone sharing
+│   │   │                               #   • Stored in MongoDB (flexible schema)
+│   │   │                               #   • Upvote system
+│   │   │
+│   │   └── challenges/                  # 🔮 Upcoming — Challenge System Module
+│   │       └── (planned)               #   • Time-boxed group challenges (30-day meditation)
+│   │                                   #   • Leaderboards + progress tracking
+│   │                                   #   • Links to existing habit engine
+│   │
+│   ├── jobs/                            # ✅ Background Jobs (Cron)
+│   │   └── reminder.cron.ts             # node-cron job — runs every minute
+│   │                                   #   • Fetches habits with reminderOn: true
+│   │                                   #   • Compares reminderTime to current HH:MM
+│   │                                   #   • Checks if habit already completed today
+│   │                                   #   • Sends email via Nodemailer if not completed
+│   │                                   #   • Graceful error handling per habit (one fail ≠ all fail)
+│   │
+│   ├── middlewares/                     # Global Express middlewares
+│   │   ├── auth.middleware.ts           # JWT verification → attaches req.userId
+│   │   ├── error.middleware.ts          # Global error handler:
+│   │   │                               #   • ZodError → 400 with field-level issues array
+│   │   │                               #   • Known AppErrors → correct HTTP status (404, 409, etc.)
+│   │   │                               #   • Unknown errors → 500 (never leaks internals)
+│   │   └── rateLimiter.ts              # express-rate-limit (100 req / 15 min globally)
+│   │
+│   ├── websocket/                       # 🔮 Upcoming — Real-time Layer
+│   │   └── socket.ts                   # Socket.io server setup
+│   │                                   #   • Real-time streak milestone events
+│   │                                   #   • Live habit completion notifications
+│   │                                   #   • Community post broadcast
+│   │
+│   ├── utils/                           # Shared utility functions
+│   │   ├── jwt.ts                      # generateToken(payload) + verifyToken(token)
+│   │   ├── date.utils.ts               # normalizeDailyDate() — midnight today
+│   │   │                               # normalizeWeeklyDate() — Monday midnight of ISO week
+│   │   ├── logger.ts                   # Structured logger (console → Winston in prod)
+│   │   └── helpers.ts                  # Shared helper functions
+│   │
+│   ├── types/                           # TypeScript global type extensions
+│   │   └── express.d.ts                # Extends Express Request with req.userId: string
+│   │
+│   ├── app.ts                           # Express app setup:
+│   │                                   #   • Global middlewares (json, cors, helmet)
+│   │                                   #   • Rate limiter
+│   │                                   #   • Swagger UI route (/api-docs)
+│   │                                   #   • Health check (/health)
+│   │                                   #   • Module routes (/api/auth, /api/mood, /api/habits)
+│   │                                   #   • Global error handler (must be last)
+│   │
+│   └── server.ts                        # Entry point:
+│                                        #   • Connects MongoDB
+│                                        #   • Starts reminder cron job
+│                                        #   • Starts Express on PORT
 │
-├── middlewares/
-│   ├── auth.middleware.ts    # JWT verification, req.userId attachment
-│   ├── error.middleware.ts   # Global error handler (ZodError, AppError, 500)
-│   └── rateLimiter.ts        # express-rate-limit
+├── prisma/
+│   ├── schema.prisma                    # DB schema:
+│   │                                   #   Models: User, MoodEntry, Habit, HabitLog
+│   │                                   #   Enums: HabitFrequency, HabitCategory
+│   │                                   #   Constraints: @@unique, @@index
+│   └── migrations/                     # Auto-generated SQL migration history
 │
-├── utils/
-│   ├── jwt.ts          # generateToken, verifyToken
-│   └── date.utils.ts   # normalizeDailyDate, normalizeWeeklyDate
+├── tests/                               # 🔮 Upcoming — Test Suite
+│   ├── unit/                           #   • habit.service.test.ts
+│   │                                   #   • date.utils.test.ts
+│   └── integration/                    #   • habit.routes.test.ts (supertest)
 │
-├── types/
-│   └── express.d.ts    # req.userId TypeScript extension
+├── .env                                 # Environment variables (never commit)
+│                                       #   PORT, DATABASE_URL, MONGO_URI
+│                                       #   JWT_SECRET
+│                                       #   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS
+│                                       #   EMAIL_FROM
 │
-├── app.ts
-└── server.ts
+├── .env.example                         # Safe template to commit (no real values)
+├── .gitignore                           # node_modules, .env, dist
+├── docker-compose.yml                   # 🔮 Upcoming — PostgreSQL + MongoDB + Node containers
+├── tsconfig.json                        # TypeScript config (strict mode, paths, outDir: dist)
+├── package.json                         # Dependencies + npm scripts
+└── README.md                            # Full API documentation
 ```
 
 ---
