@@ -25,6 +25,7 @@ Instead of basic CRUD tracking, it provides:
 - 🔐 Secure JWT-based APIs
 - 🗄 Hybrid Database Architecture (PostgreSQL + MongoDB)
 - 📘 Fully documented OpenAPI (Swagger)
+- ⏰ Automated Habit Reminder Emails (node-cron + Gmail SMTP)
 
 This is not a tutorial backend.
 This is a **SaaS-ready behavioral analytics engine**.
@@ -120,8 +121,9 @@ pulsebloom-backend/
 │   │                                   #   • Fetches habits with reminderOn: true
 │   │                                   #   • Compares reminderTime to current HH:MM
 │   │                                   #   • Checks if habit already completed today
-│   │                                   #   • Sends email via Nodemailer if not completed
+│   │                                   #   • Sends branded HTML email via Gmail SMTP
 │   │                                   #   • Graceful error handling per habit (one fail ≠ all fail)
+│   │                                   #   • Promise.allSettled for concurrent processing
 │   │
 │   ├── middlewares/                     # Global Express middlewares
 │   │   ├── auth.middleware.ts           # JWT verification → attaches req.userId
@@ -141,7 +143,8 @@ pulsebloom-backend/
 │   │   ├── jwt.ts                      # generateToken(payload) + verifyToken(token)
 │   │   ├── date.utils.ts               # normalizeDailyDate() — midnight today
 │   │   │                               # normalizeWeeklyDate() — Monday midnight of ISO week
-│   │   ├── logger.ts                   # Structured logger (console → Winston in prod)
+│   │   ├── logger.ts                   # ✅ Structured logger — timestamp + severity levels
+│   │   ├── mailer.ts                   # ✅ Nodemailer Gmail SMTP transport + sendReminderEmail()
 │   │   └── helpers.ts                  # Shared helper functions
 │   │
 │   ├── types/                           # TypeScript global type extensions
@@ -165,6 +168,7 @@ pulsebloom-backend/
 │   │                                   #   Models: User, MoodEntry, Habit, HabitLog
 │   │                                   #   Enums: HabitFrequency, HabitCategory
 │   │                                   #   Constraints: @@unique, @@index
+│   │                                   #   @@index([reminderOn, reminderTime]) for cron performance
 │   └── migrations/                     # Auto-generated SQL migration history
 │
 ├── tests/                               # 🔮 Upcoming — Test Suite
@@ -173,10 +177,8 @@ pulsebloom-backend/
 │   └── integration/                    #   • habit.routes.test.ts (supertest)
 │
 ├── .env                                 # Environment variables (never commit)
-│                                       #   PORT, DATABASE_URL, MONGO_URI
-│                                       #   JWT_SECRET
-│                                       #   SMTP_HOST, SMTP_PORT, SMTP_USER, SMTP_PASS
-│                                       #   EMAIL_FROM
+│                                       #   PORT, DATABASE_URL, MONGO_URI, JWT_SECRET
+│                                       #   SMTP_USER, SMTP_PASS, EMAIL_FROM
 │
 ├── .env.example                         # Safe template to commit (no real values)
 ├── .gitignore                           # node_modules, .env, dist
@@ -372,8 +374,8 @@ POST /api/habits
 | `color`         | string              | ❌       | Hex code like `#FF5733`                                                  |
 | `icon`          | string              | ❌       | Single emoji like `🧘`                                                   |
 | `targetPerWeek` | integer 1–7         | ❌       | Weekly goal (affects completion rate calculation)                        |
-| `reminderTime`  | `HH:MM`             | ❌       | 24-hour format                                                           |
-| `reminderOn`    | boolean             | ❌       | Toggle reminder                                                          |
+| `reminderTime`  | `HH:MM`             | ❌       | 24-hour format — used by cron job for exact-minute matching              |
+| `reminderOn`    | boolean             | ❌       | Toggle reminder on/off without clearing reminderTime                     |
 
 **Response:**
 
@@ -703,7 +705,7 @@ model Habit {
   targetPerWeek Int?                   // optional weekly goal
   sortOrder    Int            @default(0)
   isArchived   Boolean        @default(false)
-  reminderTime String?                 // "08:00"
+  reminderTime String?                 // "08:00" — matched by cron job every minute
   reminderOn   Boolean        @default(false)
   userId       String
   createdAt    DateTime       @default(now())
@@ -711,6 +713,7 @@ model Habit {
 
   @@unique([userId, title, frequency])  // prevents duplicates at DB level
   @@index([userId])
+  @@index([reminderOn, reminderTime])   // cron job performance index
 }
 
 model HabitLog {
@@ -750,6 +753,99 @@ model HabitLog {
 
 ---
 
+# ⏰ Reminder Cron Job (Fully Implemented)
+
+PulseBloom includes a production-grade background job that automatically sends habit reminder emails to users who haven't completed their habit yet.
+
+## How It Works
+
+```
+Every minute:
+  1. Get current time as "HH:MM"
+  2. Query habits WHERE reminderOn=true AND reminderTime="HH:MM"
+  3. For each habit → check if already completed this period
+  4. Not completed → send reminder email via Gmail SMTP
+  5. Already completed → skip silently
+```
+
+## Architecture
+
+The cron job is built with **graceful error isolation** — if one user's email fails, all other reminders still fire. This is achieved using `Promise.allSettled()` instead of `Promise.all()`.
+
+```
+node-cron (every minute)
+    ↓
+runReminderJob()
+    ↓
+prisma.habit.findMany()  ← indexed query, instant even at scale
+    ↓
+Promise.allSettled([...habits.map(processHabitReminder)])
+    ↓ per habit:
+    habitLog.findUnique()  ← already completed this period?
+    YES → skip
+    NO  → sendReminderEmail()  ← Nodemailer → Gmail SMTP
+```
+
+## Terminal Output
+
+On a successful tick:
+
+```
+[INFO]  [ReminderCron] ⏱  Tick — 08:00
+[INFO]  [ReminderCron] Found 2 habit(s) to process
+[INFO]  ✅ Reminder email sent {"to":"ashish@gmail.com","habit":"Morning Meditation"}
+[INFO]  ✅ Reminder email sent {"to":"priya@gmail.com","habit":"Evening Run"}
+[INFO]  [ReminderCron] ✅ Tick complete {"sent":2,"skipped":0,"failed":0}
+```
+
+When a habit is already completed:
+
+```
+[INFO]  [ReminderCron] ⏱  Tick — 08:00
+[DEBUG] [ReminderCron] Already completed — skipping
+[INFO]  [ReminderCron] ✅ Tick complete {"sent":0,"skipped":1,"failed":0}
+```
+
+## Email Template
+
+Reminder emails are sent as both **HTML** (branded, mobile-friendly) and **plain text** (spam filter friendly). The HTML email includes:
+
+- PulseBloom branded header (purple gradient)
+- Personalized greeting with the user's name
+- Habit name displayed prominently in a styled pill
+- Motivational message
+- Branded footer
+
+## Files
+
+| File | Purpose |
+| ---- | ------- |
+| `src/jobs/reminder.cron.ts` | Cron schedule, job logic, completion check |
+| `src/utils/mailer.ts` | Nodemailer Gmail SMTP transport + `sendReminderEmail()` |
+| `src/utils/logger.ts` | Structured timestamp logger used by cron output |
+
+## Environment Variables Required
+
+```env
+SMTP_USER=yourgmail@gmail.com
+SMTP_PASS=your_16_char_app_password
+EMAIL_FROM="PulseBloom 🌸 <yourgmail@gmail.com>"
+```
+
+> **Gmail Setup:** You must use a [Google App Password](https://myaccount.google.com/apppasswords), not your real Gmail password. 2-Step Verification must be enabled on your Google account first.
+
+## Design Decisions
+
+**Why every minute?** Users set `reminderTime` as `HH:MM` (e.g. `08:30`). Running every minute ensures every possible time value is matched. Running hourly would miss users with non-zero minute times.
+
+**Why check completion before sending?** Sending reminders to users who already completed their habit is a UX antipattern that erodes trust. The check is a single indexed `findUnique` — near-zero cost.
+
+**Why `@@index([reminderOn, reminderTime])`?** Without this, the cron query scans the entire Habit table every minute. With this compound index, it jumps directly to matching rows regardless of table size.
+
+**Why `Promise.allSettled`?** One bounced email (invalid address, SMTP timeout) must never block reminders for other users. `allSettled` processes every habit independently.
+
+---
+
 # 🗄 Hybrid Database Architecture
 
 ## PostgreSQL (Structured Data)
@@ -768,6 +864,7 @@ Used for:
 - Statistical calculations
 - Streak and analytics queries
 - Transactional operations (reordering)
+- Cron job reminder queries (indexed)
 
 ## MongoDB (Unstructured Data)
 
@@ -802,6 +899,8 @@ Optimized for:
 - Soft-delete pattern preserves all historical data
 - DB-level unique constraints as safety net for race conditions
 - `@@index` on hot query columns for performance
+- Cron job error isolation — one failure never affects other users
+- Gmail SMTP with TLS for secure email delivery
 
 ---
 
@@ -846,7 +945,17 @@ PORT=5000
 DATABASE_URL=postgresql://postgres:password@localhost:5432/pulsebloom
 MONGO_URI=mongodb://localhost:27017/pulsebloom
 JWT_SECRET=your_super_secret_key
+
+# Gmail SMTP — for reminder emails
+SMTP_USER=yourgmail@gmail.com
+SMTP_PASS=your_16_char_app_password
+EMAIL_FROM="PulseBloom 🌸 <yourgmail@gmail.com>"
 ```
+
+> **Gmail App Password Setup:**
+> 1. Go to [myaccount.google.com/security](https://myaccount.google.com/security) → enable 2-Step Verification
+> 2. Go to [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) → create App Password named `PulseBloom`
+> 3. Copy the 16-character password (remove spaces) → paste into `SMTP_PASS`
 
 ## 4. Setup PostgreSQL
 
@@ -872,6 +981,15 @@ npm run dev
 ```
 
 Server runs at: `http://localhost:5000`
+
+On successful startup you should see:
+
+```
+MongoDB Connected
+[ReminderCron] 🚀 Started — fires every minute
+Server running on port 5000
+📧 Gmail SMTP connection verified — mailer is ready
+```
 
 ---
 
@@ -905,11 +1023,13 @@ Server runs at: `http://localhost:5000`
 | Reminder Settings                   | ✅ Complete |
 | targetPerWeek Goal Support          | ✅ Complete |
 | Global Error Handler (Zod + App)    | ✅ Complete |
+| Reminder Cron Job (node-cron)       | ✅ Complete |
+| Structured Logger                   | ✅ Complete |
+| Gmail SMTP Email Delivery           | ✅ Complete |
 | AI-powered Insights                 | 🔮 Upcoming |
 | Anonymous Community Posts           | 🔮 Upcoming |
 | Challenge System                    | 🔮 Upcoming |
 | WebSocket Real-time Updates         | 🔮 Upcoming |
-| Reminder Cron Job (node-cron)       | 🔮 Upcoming |
 | Redis Caching                       | 🔮 Upcoming |
 | Docker Containerization             | 🔮 Upcoming |
 | AWS Deployment                      | 🔮 Upcoming |
@@ -917,8 +1037,6 @@ Server runs at: `http://localhost:5000`
 ---
 
 # 🔮 Upcoming Features
-
-**Reminder Cron Job** — A `node-cron` background job that runs every minute, checks `reminderTime` against the current time, and sends push notifications to users who haven't completed their habit yet.
 
 **AI-Powered Insights** — Uses mood + habit data together to generate personalized behavioral insights ("You tend to have lower mood on weeks you miss meditation more than 2 days").
 

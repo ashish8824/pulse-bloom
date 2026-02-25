@@ -46,8 +46,6 @@ enum HabitFrequency {
   weekly
 }
 
-// Category helps users organize habits by life area.
-// Stored as an enum so the frontend can filter/group habits cleanly.
 enum HabitCategory {
   health
   fitness
@@ -58,43 +56,44 @@ enum HabitCategory {
 }
 
 model Habit {
-  id           String         @id @default(uuid())
-  title        String
-  description  String?
-  frequency    HabitFrequency
-  category     HabitCategory  @default(custom)     // NEW: life area this habit belongs to
-  color        String?                              // NEW: hex color for frontend UI (#FF5733)
-  icon         String?                              // NEW: emoji icon ("🧘", "📚", "💪")
-  targetPerWeek Int?                               // NEW: optional goal (e.g. 5/7 days for daily habits)
-  sortOrder    Int            @default(0)           // NEW: user-controlled display order
-  isArchived   Boolean        @default(false)       // soft-delete: preserves log history
-  reminderTime String?                              // NEW: "08:00" — time to send daily reminder
-  reminderOn   Boolean        @default(false)       // NEW: toggle reminder on/off without clearing time
-  userId       String
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+  id            String         @id @default(uuid())
+  title         String
+  description   String?
+  frequency     HabitFrequency
+  category      HabitCategory  @default(custom)
+  color         String?
+  icon          String?
+  targetPerWeek Int?
+  sortOrder     Int            @default(0)
+  isArchived    Boolean        @default(false)
+  reminderTime  String?
+  reminderOn    Boolean        @default(false)
+  userId        String
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 
   user User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   logs HabitLog[]
 
-  // Prevents duplicate habits (same title+frequency per user, case handled in app)
   @@unique([userId, title, frequency])
-  // Index on userId for fast per-user queries
   @@index([userId])
+
+  // ← NEW: makes the cron query instant instead of a full table scan.
+  // Without this, every minute the cron scans ALL habits in the DB.
+  // With this, it jumps directly to habits where reminderOn=true AND reminderTime="HH:MM".
+  @@index([reminderOn, reminderTime])
 }
 
 model HabitLog {
   id        String   @id @default(uuid())
   habitId   String
-  date      DateTime // normalized: midnight for daily, Monday midnight for weekly
+  date      DateTime
   completed Boolean  @default(true)
-  note      String?  // optional user annotation ("felt great today")
+  note      String?
   createdAt DateTime @default(now())
 
   habit Habit @relation(fields: [habitId], references: [id], onDelete: Cascade)
 
-  // One log per habit per period — DB-level duplicate prevention
   @@unique([habitId, date])
-  // Index for fast log lookups by habit
   @@index([habitId])
 }
