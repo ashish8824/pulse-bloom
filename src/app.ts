@@ -48,6 +48,7 @@ app.get("/health", (req, res) => {
 app.use("/api/auth", authRoutes);
 app.use("/api/mood", moodRoutes);
 app.use("/api/habits", habitRoutes);
+app.use("/api/ai", require("./modules/ai/ai.routes").default); // Import AI routes lazily to avoid circular dependency
 
 // Must be after routes
 app.use(errorHandler);

@@ -39,10 +39,10 @@ const router = Router();
  *       properties:
  *         email:
  *           type: string
- *           example: ashish@gmail.com
+ *           example: ashish@test.com
  *         password:
  *           type: string
- *           example: 123456
+ *           example: Test@123
  *
  *     AuthResponse:
  *       type: object

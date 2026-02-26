@@ -1,3 +1,6 @@
+// prisma/schema.prisma (full updated file)
+// CHANGES: Added AiInsight model and aiInsight relation on User
+
 datasource db {
   provider = "postgresql"
 }
@@ -7,10 +10,7 @@ generator client {
   previewFeatures = ["driverAdapters"]
 }
 
-// ─────────────────────────────────────────────────────────────────
-// USER
-// ─────────────────────────────────────────────────────────────────
-
+// User
 model User {
   id        String   @id @default(uuid())
   email     String   @unique
@@ -18,14 +18,12 @@ model User {
   name      String
   createdAt DateTime @default(now())
 
-  moods  MoodEntry[]
-  habits Habit[]
+  moods     MoodEntry[]
+  habits    Habit[]
+  aiInsight AiInsight?  // NEW: one cached insight record per user
 }
 
-// ─────────────────────────────────────────────────────────────────
-// MOOD
-// ─────────────────────────────────────────────────────────────────
-
+// Mood
 model MoodEntry {
   id        String   @id @default(uuid())
   moodScore Int
@@ -37,10 +35,7 @@ model MoodEntry {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 }
 
-// ─────────────────────────────────────────────────────────────────
-// HABITS
-// ─────────────────────────────────────────────────────────────────
-
+// Habits
 enum HabitFrequency {
   daily
   weekly
@@ -77,10 +72,6 @@ model Habit {
 
   @@unique([userId, title, frequency])
   @@index([userId])
-
-  // ← NEW: makes the cron query instant instead of a full table scan.
-  // Without this, every minute the cron scans ALL habits in the DB.
-  // With this, it jumps directly to habits where reminderOn=true AND reminderTime="HH:MM".
   @@index([reminderOn, reminderTime])
 }
 
@@ -96,4 +87,25 @@ model HabitLog {
 
   @@unique([habitId, date])
   @@index([habitId])
+}
+
+// NEW: AI Insight cache
+// One row per user. Stores the latest generated insights and a SHA-256
+// hash of the data used to generate them.
+//
+// Cache invalidation logic:
+//   On each /api/ai/insights request, we hash the current mood+habit data.
+//   If hash === cached hash, return cached insights (no OpenAI call needed).
+//   If hash differs, data has changed — regenerate and update this row.
+model AiInsight {
+  id          String   @id @default(uuid())
+  userId      String
+  insights    Json     // AiInsightItem[] stored as JSON
+  dataHash    String   // SHA-256 fingerprint of the data snapshot
+  generatedAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId])   // one insight record per user
+  @@index([userId])
 }

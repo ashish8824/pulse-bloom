@@ -101,10 +101,12 @@ pulsebloom-backend/
 │   │   │                                #   • reorderHabitsSchema
 │   │   │                                #   • reminderSchema
 │   │   │
-│   │   ├── ai/                          # 🔮 Upcoming — AI Insights Module
-│   │   │   └── (planned)               #   • GPT-powered habit + mood correlation analysis
-│   │   │                               #   • Personalized behavioral recommendations
-│   │   │                               #   • Burnout prediction model
+│   │   ├── ai/                          # ✅ AI Insights Module
+│   │   │   ├── ai.controller.ts         # HTTP layer — GET /api/ai/insights
+│   │   │   ├── ai.service.ts            # Orchestrator: cache check → prompt build → OpenAI call
+│   │   │   ├── ai.repository.ts         # DB layer — fetch mood+habit data, read/write AiInsight cache
+│   │   │   ├── ai.prompt.ts             # Data pre-processing + prompt engineering (system + user prompts)
+│   │   │   └── ai.routes.ts             # GET /api/ai/insights with Swagger JSDoc
 │   │   │
 │   │   ├── community/                   # 🔮 Upcoming — Anonymous Community Module
 │   │   │   └── (planned)               #   • Anonymous mood/habit milestone sharing
@@ -818,11 +820,11 @@ Reminder emails are sent as both **HTML** (branded, mobile-friendly) and **plain
 
 ## Files
 
-| File | Purpose |
-| ---- | ------- |
-| `src/jobs/reminder.cron.ts` | Cron schedule, job logic, completion check |
-| `src/utils/mailer.ts` | Nodemailer Gmail SMTP transport + `sendReminderEmail()` |
-| `src/utils/logger.ts` | Structured timestamp logger used by cron output |
+| File                        | Purpose                                                 |
+| --------------------------- | ------------------------------------------------------- |
+| `src/jobs/reminder.cron.ts` | Cron schedule, job logic, completion check              |
+| `src/utils/mailer.ts`       | Nodemailer Gmail SMTP transport + `sendReminderEmail()` |
+| `src/utils/logger.ts`       | Structured timestamp logger used by cron output         |
 
 ## Environment Variables Required
 
@@ -843,6 +845,125 @@ EMAIL_FROM="PulseBloom 🌸 <yourgmail@gmail.com>"
 **Why `@@index([reminderOn, reminderTime])`?** Without this, the cron query scans the entire Habit table every minute. With this compound index, it jumps directly to matching rows regardless of table size.
 
 **Why `Promise.allSettled`?** One bounced email (invalid address, SMTP timeout) must never block reminders for other users. `allSettled` processes every habit independently.
+
+---
+
+# 🤖 AI Insights Module (Fully Implemented)
+
+PulseBloom uses GPT-4o-mini to cross-correlate mood scores and habit completion data, generating personalized behavioral insights like "In the 3 weeks where your mood averaged below 3.0, you completed Morning Meditation 0 times."
+
+## How It Works
+
+```
+GET /api/ai/insights
+    ↓
+Fetch last 90 days of mood entries + habit logs (parallel DB queries)
+    ↓
+Compute SHA-256 hash of raw data snapshot
+    ↓
+Check AiInsight cache: does cached hash === current hash?
+    YES → return cached insights instantly (no OpenAI call)
+    NO  → continue ↓
+    ↓
+Pre-process data into weekly behavioral summary (ai.prompt.ts)
+    ↓
+Build system + user prompts
+    ↓
+Call OpenAI gpt-4o-mini (temperature: 0.4, max_tokens: 1200)
+    ↓
+Parse + validate JSON response
+    ↓
+Upsert AiInsight cache row in PostgreSQL
+    ↓
+Return 3–6 structured insights
+```
+
+## Endpoint
+
+```
+GET /api/ai/insights
+GET /api/ai/insights?refresh=true
+```
+
+`?refresh=true` bypasses the cache and forces regeneration — use this for a "Refresh Insights" button on the frontend.
+
+## Response
+
+```json
+{
+  "insights": [
+    {
+      "type": "correlation",
+      "title": "Meditation skips align with your lowest mood weeks",
+      "description": "In the 3 weeks where your mood averaged below 3.0, you completed Morning Meditation 0 times. In weeks you did complete it, your average mood was 4.1.",
+      "severity": "warning"
+    },
+    {
+      "type": "positive",
+      "title": "Strong consistency on weekday mornings",
+      "description": "You completed Exercise 91% of weekdays over the past 90 days — your best performing habit.",
+      "severity": "success"
+    }
+  ],
+  "cached": true,
+  "generatedAt": "2026-02-26T08:00:00.000Z",
+  "message": "Insights served from cache"
+}
+```
+
+## Insight Types
+
+| Type          | Meaning                                     | Severity         |
+| ------------- | ------------------------------------------- | ---------------- |
+| `correlation` | Mood ↔ habit relationship (highest value)   | `warning`/`info` |
+| `streak`      | Notable streak pattern (current or broken)  | `info`/`success` |
+| `warning`     | Concerning pattern needing attention        | `warning`        |
+| `positive`    | Strong behavioral pattern worth celebrating | `success`        |
+| `suggestion`  | Actionable recommendation based on data     | `info`           |
+
+## Caching Strategy
+
+Insights are cached in the `AiInsight` PostgreSQL table using a **SHA-256 data hash**.
+
+- Every request hashes the current 90-day mood + habit snapshot
+- If the hash matches the cached hash → return instantly (zero OpenAI cost)
+- If the hash differs → data has changed, regenerate and update cache
+- One cache row per user (upsert pattern)
+
+This means the OpenAI API is only called when the user's behavioral data actually changes.
+
+## Minimum Data Requirements
+
+- At least 7 mood entries, **OR**
+- At least 1 habit with 5+ completions
+
+If neither threshold is met, the endpoint returns an empty insights array with a message explaining what's needed.
+
+## Files
+
+| File                              | Purpose                                                         |
+| --------------------------------- | --------------------------------------------------------------- |
+| `src/modules/ai/ai.repository.ts` | DB queries for mood/habit data + AiInsight cache read/write     |
+| `src/modules/ai/ai.prompt.ts`     | Data pre-processing into weekly summaries + prompt construction |
+| `src/modules/ai/ai.service.ts`    | Full pipeline: cache → pre-process → OpenAI → validate → cache  |
+| `src/modules/ai/ai.controller.ts` | HTTP adapter — extracts params, calls service, sends response   |
+| `src/modules/ai/ai.routes.ts`     | Route registration with Swagger documentation                   |
+
+## Environment Variable Required
+
+```env
+OPENAI_API_KEY=sk-...your-key-here...
+```
+
+## Design Decisions
+
+**Why gpt-4o-mini?** Better correlation detection than gpt-3.5-turbo at ~10x cheaper than gpt-4o. The right cost/quality balance for per-user analytics.
+
+**Why hash-based caching instead of TTL?** TTL (e.g. "regenerate every 24 hours") wastes API calls when data hasn't changed, and goes stale when the user logs a lot of new data in one day. Hash-based caching is perfectly accurate — regenerate if and only if the data actually changed.
+
+**Why pre-process data before sending to OpenAI?** Sending raw DB rows would be expensive (many tokens) and would produce lower quality output. Pre-aggregating into weekly mood averages and weekly habit completion counts gives the AI exactly the signal it needs to detect correlations.
+
+**Why temperature 0.4?** Low temperature = consistent, structured JSON output. High temperature = creative but risks malformed JSON that breaks `JSON.parse()`.
 
 ---
 
@@ -953,6 +1074,7 @@ EMAIL_FROM="PulseBloom 🌸 <yourgmail@gmail.com>"
 ```
 
 > **Gmail App Password Setup:**
+>
 > 1. Go to [myaccount.google.com/security](https://myaccount.google.com/security) → enable 2-Step Verification
 > 2. Go to [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) → create App Password named `PulseBloom`
 > 3. Copy the 16-character password (remove spaces) → paste into `SMTP_PASS`
@@ -1026,7 +1148,7 @@ Server running on port 5000
 | Reminder Cron Job (node-cron)       | ✅ Complete |
 | Structured Logger                   | ✅ Complete |
 | Gmail SMTP Email Delivery           | ✅ Complete |
-| AI-powered Insights                 | 🔮 Upcoming |
+| AI-powered Insights                 | ✅ Complete |
 | Anonymous Community Posts           | 🔮 Upcoming |
 | Challenge System                    | 🔮 Upcoming |
 | WebSocket Real-time Updates         | 🔮 Upcoming |
@@ -1037,8 +1159,6 @@ Server running on port 5000
 ---
 
 # 🔮 Upcoming Features
-
-**AI-Powered Insights** — Uses mood + habit data together to generate personalized behavioral insights ("You tend to have lower mood on weeks you miss meditation more than 2 days").
 
 **Redis Caching** — Analytics endpoints (`/analytics`, `/streak`, `/heatmap`) are read-heavy. Redis caching with a 5-minute TTL will eliminate redundant recalculations. Cache is invalidated on every `completeHabit()` call.
 
