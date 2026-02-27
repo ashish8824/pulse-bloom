@@ -1,5 +1,4 @@
-// prisma/schema.prisma (full updated file)
-// CHANGES: Added AiInsight model and aiInsight relation on User
+// prisma/schema.prisma
 
 datasource db {
   provider = "postgresql"
@@ -10,7 +9,9 @@ generator client {
   previewFeatures = ["driverAdapters"]
 }
 
-// User
+// ─────────────────────────────────────────────────────────────────
+// USER
+// ─────────────────────────────────────────────────────────────────
 model User {
   id        String   @id @default(uuid())
   email     String   @unique
@@ -20,22 +21,53 @@ model User {
 
   moods     MoodEntry[]
   habits    Habit[]
-  aiInsight AiInsight?  // NEW: one cached insight record per user
+  aiInsight AiInsight?
 }
 
-// Mood
+// ─────────────────────────────────────────────────────────────────
+// MOOD ENTRY
+//
+// Stores structured mood data in PostgreSQL.
+// Journal text lives in MongoDB (JournalEntry) and is linked via journalId.
+//
+// Mood module endpoints:
+//   POST   /api/mood                    → create
+//   GET    /api/mood                    → paginated list
+//   GET    /api/mood/:id                → single (hydrated with journal)
+//   PATCH  /api/mood/:id                → update
+//   DELETE /api/mood/:id                → delete
+//   GET    /api/mood/analytics          → stats summary
+//   GET    /api/mood/streak             → consecutive logging streak
+//   GET    /api/mood/heatmap            → GitHub-style daily heatmap
+//   GET    /api/mood/summary/monthly    → calendar month view
+//   GET    /api/mood/insights/daily     → day-of-week + time-of-day patterns
+//   GET    /api/mood/trends/weekly      → ISO week groupings
+//   GET    /api/mood/trends/rolling     → 7-day rolling average
+//   GET    /api/mood/burnout-risk       → burnout risk score
+//
+// Indexes:
+//   @@index([userId])           → required for all user-scoped queries
+//   @@index([userId, createdAt]) → required for date-range analytics queries
+//                                  Without this, every analytics call full-scans
+//                                  the table as the dataset grows.
+// ─────────────────────────────────────────────────────────────────
 model MoodEntry {
   id        String   @id @default(uuid())
   moodScore Int
   emoji     String
-  journalId String?
+  journalId String?  // MongoDB ObjectId — null if no journal was provided
   userId    String
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, createdAt])
 }
 
-// Habits
+// ─────────────────────────────────────────────────────────────────
+// HABIT
+// ─────────────────────────────────────────────────────────────────
 enum HabitFrequency {
   daily
   weekly
@@ -61,7 +93,7 @@ model Habit {
   targetPerWeek Int?
   sortOrder     Int            @default(0)
   isArchived    Boolean        @default(false)
-  reminderTime  String?
+  reminderTime  String?        // "HH:MM" — matched by cron job every minute
   reminderOn    Boolean        @default(false)
   userId        String
   createdAt     DateTime       @default(now())
@@ -75,10 +107,13 @@ model Habit {
   @@index([reminderOn, reminderTime])
 }
 
+// ─────────────────────────────────────────────────────────────────
+// HABIT LOG
+// ─────────────────────────────────────────────────────────────────
 model HabitLog {
   id        String   @id @default(uuid())
   habitId   String
-  date      DateTime
+  date      DateTime // normalized period timestamp (midnight daily / Monday weekly)
   completed Boolean  @default(true)
   note      String?
   createdAt DateTime @default(now())
@@ -89,23 +124,24 @@ model HabitLog {
   @@index([habitId])
 }
 
-// NEW: AI Insight cache
-// One row per user. Stores the latest generated insights and a SHA-256
-// hash of the data used to generate them.
+// ─────────────────────────────────────────────────────────────────
+// AI INSIGHT CACHE
 //
-// Cache invalidation logic:
-//   On each /api/ai/insights request, we hash the current mood+habit data.
-//   If hash === cached hash, return cached insights (no OpenAI call needed).
-//   If hash differs, data has changed — regenerate and update this row.
+// One row per user. Stores generated insights + a SHA-256 hash
+// of the data snapshot used to generate them.
+//
+// Cache hit:  current_hash == stored dataHash → return cached (no OpenAI call)
+// Cache miss: current_hash != stored dataHash → regenerate and upsert
+// ─────────────────────────────────────────────────────────────────
 model AiInsight {
   id          String   @id @default(uuid())
   userId      String
-  insights    Json     // AiInsightItem[] stored as JSON
-  dataHash    String   // SHA-256 fingerprint of the data snapshot
+  insights    Json
+  dataHash    String
   generatedAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@unique([userId])   // one insight record per user
+  @@unique([userId])
   @@index([userId])
 }

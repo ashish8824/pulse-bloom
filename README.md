@@ -20,12 +20,17 @@ Instead of basic CRUD tracking, it provides:
 - 📈 Weekly Trend Analysis
 - 📉 Rolling 7-Day Moving Averages
 - 🔥 Burnout Risk Scoring
+- 🗓 Mood Logging Streak Engine
+- 🌡 GitHub-style Mood Heatmap
+- 📆 Monthly Mood Calendar Summary
+- 🔍 Day-of-Week + Time-of-Day Behavioural Patterns
 - 🧘 Full Habit Tracking Engine with Streak System
 - 📅 Habit Heatmaps, Monthly Summaries & Consistency Scoring
 - 🔐 Secure JWT-based APIs
 - 🗄 Hybrid Database Architecture (PostgreSQL + MongoDB)
 - 📘 Fully documented OpenAPI (Swagger)
 - ⏰ Automated Habit Reminder Emails (node-cron + Gmail SMTP)
+- 🤖 AI-powered Behavioural Insights (GPT-4o-mini)
 
 This is not a tutorial backend.
 This is a **SaaS-ready behavioral analytics engine**.
@@ -64,19 +69,37 @@ pulsebloom-backend/
 │   ├── modules/                         # Feature-based modules (Clean Architecture)
 │   │   │
 │   │   ├── auth/                        # ✅ Authentication Module
-│   │   │   ├── auth.controller.ts       # HTTP layer — parses req, calls service, sends res
-│   │   │   ├── auth.service.ts          # Business logic — register, login, password hashing
-│   │   │   ├── auth.repository.ts       # DB layer — findUserByEmail, createUser (Prisma)
-│   │   │   ├── auth.routes.ts           # POST /api/auth/register, POST /api/auth/login
-│   │   │   └── auth.validation.ts       # Zod schemas — registerSchema, loginSchema
+│   │   │   ├── auth.controller.ts
+│   │   │   ├── auth.service.ts
+│   │   │   ├── auth.repository.ts
+│   │   │   ├── auth.routes.ts
+│   │   │   └── auth.validation.ts
 │   │   │
 │   │   ├── mood/                        # ✅ Mood Tracking + Analytics Module
-│   │   │   ├── mood.controller.ts       # HTTP layer for all mood endpoints
-│   │   │   ├── mood.service.ts          # Analytics engine — trends, rolling avg, burnout risk
-│   │   │   ├── mood.repository.ts       # DB layer — PostgreSQL (mood entries) + MongoDB (journals)
-│   │   │   ├── mood.routes.ts           # GET/POST /api/mood + all analytics routes
-│   │   │   ├── mood.validation.ts       # Zod schemas — createMoodSchema
-│   │   │   └── mood.model.ts            # Mongoose schema for journal entries (MongoDB)
+│   │   │   ├── mood.controller.ts       # HTTP layer — all 13 mood endpoints
+│   │   │   ├── mood.service.ts          # Business logic:
+│   │   │   │                            #   • addMood (Postgres + Mongo dual-write)
+│   │   │   │                            #   • getMoodById (journal hydration)
+│   │   │   │                            #   • updateMood (true PATCH + journal sync)
+│   │   │   │                            #   • deleteMood (cross-store cleanup)
+│   │   │   │                            #   • fetchMoods (paginated)
+│   │   │   │                            #   • calculateMoodAnalytics
+│   │   │   │                            #   • calculateWeeklyTrend (ISO 8601 corrected)
+│   │   │   │                            #   • calculateRollingAverage
+│   │   │   │                            #   • calculateBurnoutRisk
+│   │   │   │                            #   • calculateMoodStreak
+│   │   │   │                            #   • generateMoodHeatmap
+│   │   │   │                            #   • getMoodMonthlySummary
+│   │   │   │                            #   • getMoodDailyInsights
+│   │   │   ├── mood.repository.ts       # DB layer — all Prisma + lean select queries
+│   │   │   ├── mood.routes.ts           # All 13 routes with full Swagger JSDoc
+│   │   │   ├── mood.validation.ts       # Zod schemas:
+│   │   │   │                            #   • createMoodSchema
+│   │   │   │                            #   • updateMoodSchema
+│   │   │   │                            #   • moodQuerySchema
+│   │   │   │                            #   • heatmapQuerySchema
+│   │   │   │                            #   • monthlySummaryQuerySchema
+│   │   │   └── mood.mongo.ts            # Mongoose schema — JournalEntry (MongoDB)
 │   │   │
 │   │   ├── habits/                      # ✅ Full Habit Engine Module
 │   │   │   ├── habit.controller.ts      # HTTP layer — all 15 habit endpoints
@@ -86,7 +109,7 @@ pulsebloom-backend/
 │   │   │   │                            #   • completeHabit (period normalization)
 │   │   │   │                            #   • undoLastCompletion
 │   │   │   │                            #   • reorderHabits (atomic transaction)
-│   │   │   │                            #   • calculateHabitStreak (DST-safe algorithm)
+│   │   │   │                            #   • calculateHabitStreak (DST-safe)
 │   │   │   │                            #   • calculateHabitAnalytics (consistency score)
 │   │   │   │                            #   • getMonthlyHabitSummary
 │   │   │   │                            #   • generateHabitHeatmap
@@ -94,107 +117,63 @@ pulsebloom-backend/
 │   │   │   │                            #   • updateReminder
 │   │   │   ├── habit.repository.ts      # DB layer — all Prisma queries (habits + logs)
 │   │   │   ├── habit.routes.ts          # All 15 routes with full Swagger JSDoc annotations
-│   │   │   └── habit.validation.ts      # Zod schemas:
-│   │   │                                #   • createHabitSchema
-│   │   │                                #   • updateHabitSchema
-│   │   │                                #   • completeHabitSchema
-│   │   │                                #   • reorderHabitsSchema
-│   │   │                                #   • reminderSchema
+│   │   │   └── habit.validation.ts      # Zod schemas (5 schemas)
 │   │   │
 │   │   ├── ai/                          # ✅ AI Insights Module
-│   │   │   ├── ai.controller.ts         # HTTP layer — GET /api/ai/insights
-│   │   │   ├── ai.service.ts            # Orchestrator: cache check → prompt build → OpenAI call
-│   │   │   ├── ai.repository.ts         # DB layer — fetch mood+habit data, read/write AiInsight cache
-│   │   │   ├── ai.prompt.ts             # Data pre-processing + prompt engineering (system + user prompts)
-│   │   │   └── ai.routes.ts             # GET /api/ai/insights with Swagger JSDoc
+│   │   │   ├── ai.controller.ts
+│   │   │   ├── ai.service.ts
+│   │   │   ├── ai.repository.ts
+│   │   │   ├── ai.prompt.ts
+│   │   │   └── ai.routes.ts
 │   │   │
-│   │   ├── community/                   # 🔮 Upcoming — Anonymous Community Module
-│   │   │   └── (planned)               #   • Anonymous mood/habit milestone sharing
-│   │   │                               #   • Stored in MongoDB (flexible schema)
-│   │   │                               #   • Upvote system
-│   │   │
-│   │   └── challenges/                  # 🔮 Upcoming — Challenge System Module
-│   │       └── (planned)               #   • Time-boxed group challenges (30-day meditation)
-│   │                                   #   • Leaderboards + progress tracking
-│   │                                   #   • Links to existing habit engine
+│   │   ├── community/                   # 🔮 Upcoming
+│   │   └── challenges/                  # 🔮 Upcoming
 │   │
-│   ├── jobs/                            # ✅ Background Jobs (Cron)
-│   │   └── reminder.cron.ts             # node-cron job — runs every minute
-│   │                                   #   • Fetches habits with reminderOn: true
-│   │                                   #   • Compares reminderTime to current HH:MM
-│   │                                   #   • Checks if habit already completed today
-│   │                                   #   • Sends branded HTML email via Gmail SMTP
-│   │                                   #   • Graceful error handling per habit (one fail ≠ all fail)
-│   │                                   #   • Promise.allSettled for concurrent processing
+│   ├── jobs/
+│   │   └── reminder.cron.ts             # node-cron — runs every minute
 │   │
-│   ├── middlewares/                     # Global Express middlewares
+│   ├── middlewares/
 │   │   ├── auth.middleware.ts           # JWT verification → attaches req.userId
-│   │   ├── error.middleware.ts          # Global error handler:
-│   │   │                               #   • ZodError → 400 with field-level issues array
-│   │   │                               #   • Known AppErrors → correct HTTP status (404, 409, etc.)
-│   │   │                               #   • Unknown errors → 500 (never leaks internals)
-│   │   └── rateLimiter.ts              # express-rate-limit (100 req / 15 min globally)
+│   │   ├── error.middleware.ts          # Global error handler (Zod + App + unknown)
+│   │   └── rateLimiter.ts              # express-rate-limit (100 req / 15 min)
 │   │
-│   ├── websocket/                       # 🔮 Upcoming — Real-time Layer
-│   │   └── socket.ts                   # Socket.io server setup
-│   │                                   #   • Real-time streak milestone events
-│   │                                   #   • Live habit completion notifications
-│   │                                   #   • Community post broadcast
+│   ├── websocket/                       # 🔮 Upcoming — Socket.io real-time layer
 │   │
-│   ├── utils/                           # Shared utility functions
-│   │   ├── jwt.ts                      # generateToken(payload) + verifyToken(token)
-│   │   ├── date.utils.ts               # normalizeDailyDate() — midnight today
-│   │   │                               # normalizeWeeklyDate() — Monday midnight of ISO week
-│   │   ├── logger.ts                   # ✅ Structured logger — timestamp + severity levels
-│   │   ├── mailer.ts                   # ✅ Nodemailer Gmail SMTP transport + sendReminderEmail()
-│   │   └── helpers.ts                  # Shared helper functions
+│   ├── utils/
+│   │   ├── jwt.ts
+│   │   ├── date.utils.ts
+│   │   ├── logger.ts
+│   │   ├── mailer.ts
+│   │   └── helpers.ts
 │   │
-│   ├── types/                           # TypeScript global type extensions
-│   │   └── express.d.ts                # Extends Express Request with req.userId: string
+│   ├── types/
+│   │   └── express.d.ts                 # Extends Request with req.userId: string
 │   │
-│   ├── app.ts                           # Express app setup:
-│   │                                   #   • Global middlewares (json, cors, helmet)
-│   │                                   #   • Rate limiter
-│   │                                   #   • Swagger UI route (/api-docs)
-│   │                                   #   • Health check (/health)
-│   │                                   #   • Module routes (/api/auth, /api/mood, /api/habits)
-│   │                                   #   • Global error handler (must be last)
-│   │
-│   └── server.ts                        # Entry point:
-│                                        #   • Connects MongoDB
-│                                        #   • Starts reminder cron job
-│                                        #   • Starts Express on PORT
+│   ├── app.ts
+│   └── server.ts
 │
 ├── prisma/
-│   ├── schema.prisma                    # DB schema:
-│   │                                   #   Models: User, MoodEntry, Habit, HabitLog
-│   │                                   #   Enums: HabitFrequency, HabitCategory
-│   │                                   #   Constraints: @@unique, @@index
-│   │                                   #   @@index([reminderOn, reminderTime]) for cron performance
-│   └── migrations/                     # Auto-generated SQL migration history
+│   ├── schema.prisma
+│   └── migrations/
 │
-├── tests/                               # 🔮 Upcoming — Test Suite
-│   ├── unit/                           #   • habit.service.test.ts
-│   │                                   #   • date.utils.test.ts
-│   └── integration/                    #   • habit.routes.test.ts (supertest)
+├── tests/                               # 🔮 Upcoming
+│   ├── unit/
+│   └── integration/
 │
-├── .env                                 # Environment variables (never commit)
-│                                       #   PORT, DATABASE_URL, MONGO_URI, JWT_SECRET
-│                                       #   SMTP_USER, SMTP_PASS, EMAIL_FROM
-│
-├── .env.example                         # Safe template to commit (no real values)
-├── .gitignore                           # node_modules, .env, dist
-├── docker-compose.yml                   # 🔮 Upcoming — PostgreSQL + MongoDB + Node containers
-├── tsconfig.json                        # TypeScript config (strict mode, paths, outDir: dist)
-├── package.json                         # Dependencies + npm scripts
-└── README.md                            # Full API documentation
+├── .env
+├── .env.example
+├── .gitignore
+├── docker-compose.yml                   # 🔮 Upcoming
+├── tsconfig.json
+├── package.json
+└── README.md
 ```
 
 ---
 
 # 🔐 Authentication
 
-PulseBloom uses **JWT-based authentication**.
+PulseBloom uses **JWT-based stateless authentication**.
 
 ### Register
 
@@ -229,14 +208,39 @@ All protected routes require:
 Authorization: Bearer <token>
 ```
 
-- Access token expiry: `1 day`
-- Password hashing: `bcrypt` (salt rounds: 10)
+| Property         | Value             |
+| ---------------- | ----------------- |
+| Token expiry     | 1 day             |
+| Password hashing | bcrypt, 10 rounds |
+| Strategy         | Stateless JWT     |
 
 ---
 
 # 📊 Mood Module
 
-The Mood Module is production-ready and analytics-enabled.
+The Mood Module is a production-grade behavioral logging and analytics engine.
+
+It stores structured mood data in **PostgreSQL** and unstructured journal text in **MongoDB**, with a bidirectional link (`journalId` on the Postgres row ↔ `moodEntryId` on the Mongo document).
+
+## 🗺 Mood API Reference
+
+| Method   | Endpoint                    | Description                                                  |
+| -------- | --------------------------- | ------------------------------------------------------------ |
+| `POST`   | `/api/mood`                 | Create mood entry (+ optional journal)                       |
+| `GET`    | `/api/mood`                 | Paginated history (`?page` `?limit` `?startDate` `?endDate`) |
+| `GET`    | `/api/mood/:id`             | Single entry hydrated with journal text + tags               |
+| `PATCH`  | `/api/mood/:id`             | Partial update (score, emoji, journal, tags)                 |
+| `DELETE` | `/api/mood/:id`             | Hard delete entry + journal cleanup                          |
+| `GET`    | `/api/mood/analytics`       | Summary statistics                                           |
+| `GET`    | `/api/mood/streak`          | Consecutive logging streak                                   |
+| `GET`    | `/api/mood/heatmap`         | GitHub-style daily heatmap (`?days=365`)                     |
+| `GET`    | `/api/mood/summary/monthly` | Calendar month view (`?month=YYYY-MM`)                       |
+| `GET`    | `/api/mood/insights/daily`  | Day-of-week + time-of-day patterns                           |
+| `GET`    | `/api/mood/trends/weekly`   | ISO 8601 weekly trend groupings                              |
+| `GET`    | `/api/mood/trends/rolling`  | 7-day rolling average                                        |
+| `GET`    | `/api/mood/burnout-risk`    | Burnout risk score + level                                   |
+
+---
 
 ## Create Mood Entry
 
@@ -248,28 +252,131 @@ POST /api/mood
 {
   "moodScore": 4,
   "emoji": "😊",
-  "journalText": "Had a productive day."
+  "journalText": "Had a productive deep work session.",
+  "tags": ["work", "exercise"]
 }
 ```
 
-Stores mood score + emoji in **PostgreSQL** and journal text in **MongoDB**.
+**Fields:**
+
+| Field         | Type        | Required | Description                                       |
+| ------------- | ----------- | -------- | ------------------------------------------------- |
+| `moodScore`   | integer 1–5 | ✅       | Mood score (1 = very low, 5 = excellent)          |
+| `emoji`       | string      | ✅       | Emoji representation of the mood                  |
+| `journalText` | string      | ❌       | Up to 5000 characters — saved in MongoDB          |
+| `tags`        | string[]    | ❌       | Up to 10 lowercase slugs e.g. `["work", "sleep"]` |
+
+**Response:**
+
+```json
+{
+  "id": "uuid",
+  "moodScore": 4,
+  "emoji": "😊",
+  "journalId": "65d4fa21bc92b3bcd23e4567",
+  "userId": "uuid",
+  "createdAt": "2026-02-26T08:30:00.000Z"
+}
+```
+
+> `journalId` is the MongoDB ObjectId of the linked journal document. `null` if no `journalText` was provided.
+
+---
+
+## Get Single Mood Entry (Hydrated)
+
+```
+GET /api/mood/:id
+```
+
+Returns the mood entry merged with its journal text and tags from MongoDB.
+
+```json
+{
+  "id": "uuid",
+  "moodScore": 4,
+  "emoji": "😊",
+  "journalId": "65d4fa21bc92b3bcd23e4567",
+  "userId": "uuid",
+  "createdAt": "2026-02-26T08:30:00.000Z",
+  "journal": {
+    "text": "Had a productive deep work session.",
+    "tags": ["work", "exercise"]
+  }
+}
+```
+
+`journal` is `null` if the entry has no linked journal document.
+
+---
+
+## Update Mood Entry
+
+```
+PATCH /api/mood/:id
+```
+
+True PATCH semantics — only the fields you send are changed.
+
+```json
+{
+  "moodScore": 3,
+  "journalText": "Actually it was more of a medium day."
+}
+```
+
+**Journal update rules:**
+
+| `journalText` value   | Behaviour                                         |
+| --------------------- | ------------------------------------------------- |
+| `"some updated text"` | Updates the existing journal doc (or creates one) |
+| `null`                | Deletes the linked MongoDB journal document       |
+| _(omitted)_           | Journal is left completely untouched              |
+
+---
+
+## Delete Mood Entry
+
+```
+DELETE /api/mood/:id
+```
+
+Permanently deletes the mood entry from PostgreSQL **and** its linked journal document from MongoDB. This action is irreversible.
+
+```json
+{ "message": "Mood entry deleted successfully" }
+```
+
+---
 
 ## Paginated Mood History
 
 ```
 GET /api/mood?page=1&limit=10
-```
-
-## Date Filtering
-
-```
 GET /api/mood?startDate=2026-01-01&endDate=2026-01-31
 ```
+
+`endDate` is end-of-day inclusive — all entries up to `23:59:59.999` on that date are included.
+
+```json
+{
+  "data": [ { "id": "uuid", "moodScore": 4, "emoji": "😊", ... } ],
+  "pagination": {
+    "total": 87,
+    "page": 1,
+    "limit": 10,
+    "totalPages": 9
+  }
+}
+```
+
+---
 
 ## Mood Analytics
 
 ```
 GET /api/mood/analytics
+GET /api/mood/analytics?startDate=2026-01-01&endDate=2026-01-31
 ```
 
 ```json
@@ -283,13 +390,150 @@ GET /api/mood/analytics
 }
 ```
 
+---
+
+## Mood Logging Streak
+
+```
+GET /api/mood/streak
+```
+
+Returns the current consecutive-day logging streak.
+
+**Algorithm:** The streak anchor is today (or yesterday, as a grace period). If you haven't logged yet today but logged yesterday, the streak stays active — you won't lose a 30-day streak at 7am simply for not having logged yet.
+
+```json
+{
+  "currentStreak": 12,
+  "longestStreak": 30,
+  "lastLoggedDate": "2026-02-26"
+}
+```
+
+---
+
+## Mood Heatmap
+
+```
+GET /api/mood/heatmap?days=365
+```
+
+Returns one entry per calendar day for the requested window (max 730 days / 2 years).
+
+- `averageScore: 0` — no entry logged that day
+- `averageScore: 1–5` — average mood across all entries on that day
+- `count` — number of entries logged on that day
+
+```json
+{
+  "heatmap": [
+    { "date": "2025-02-26", "averageScore": 0, "count": 0 },
+    { "date": "2025-02-27", "averageScore": 4.0, "count": 2 },
+    { "date": "2025-02-28", "averageScore": 3.5, "count": 1 }
+  ],
+  "totalDays": 365,
+  "loggedDays": 87
+}
+```
+
+> Frontend maps `averageScore` to colour intensity — 0 = grey, 1–5 = green scale (or custom theme).
+
+---
+
+## Monthly Calendar Summary
+
+```
+GET /api/mood/summary/monthly?month=2026-02
+```
+
+Defaults to the current month if `month` is not provided.
+
+```json
+{
+  "month": "2026-02",
+  "totalEntries": 35,
+  "loggedDays": 22,
+  "averageMood": 3.7,
+  "bestDay": { "date": "2026-02-14", "averageScore": 5.0 },
+  "worstDay": { "date": "2026-02-03", "averageScore": 1.5 },
+  "calendar": [
+    { "date": "2026-02-01", "day": 1, "averageScore": 4.0, "count": 1 },
+    { "date": "2026-02-02", "day": 2, "averageScore": null, "count": 0 },
+    { "date": "2026-02-03", "day": 3, "averageScore": 1.5, "count": 2 }
+  ]
+}
+```
+
+`averageScore: null` means no entry was logged on that day. Used by calendar UI components to render coloured day cells.
+
+---
+
+## Daily Insights (Day-of-Week + Time-of-Day Patterns)
+
+```
+GET /api/mood/insights/daily
+GET /api/mood/insights/daily?startDate=2025-12-01&endDate=2026-02-28
+```
+
+Analyses mood entries across two behavioural dimensions. Requires at least 5 entries.
+
+```json
+{
+  "analyzedEntries": 87,
+  "dayOfWeekPattern": {
+    "data": [
+      { "day": "Monday", "averageMood": 2.1, "entries": 14 },
+      { "day": "Tuesday", "averageMood": 3.9, "entries": 13 },
+      { "day": "Wednesday", "averageMood": 4.1, "entries": 15 }
+    ],
+    "bestDay": "Wednesday",
+    "worstDay": "Monday",
+    "mostActiveDay": "Wednesday",
+    "insight": "Your Wednesdays average 4.1 — your best day of the week."
+  },
+  "timeOfDayPattern": {
+    "data": [
+      { "timeOfDay": "Morning (5am–12pm)", "averageMood": 4.2, "entries": 42 },
+      {
+        "timeOfDay": "Afternoon (12pm–5pm)",
+        "averageMood": 3.5,
+        "entries": 21
+      },
+      { "timeOfDay": "Evening (5pm–9pm)", "averageMood": 3.1, "entries": 18 },
+      { "timeOfDay": "Night (9pm–5am)", "averageMood": 2.9, "entries": 6 }
+    ],
+    "bestTime": "Morning (5am–12pm)",
+    "mostActiveTime": "Morning (5am–12pm)",
+    "insight": "You feel best during Morning (5am–12pm) (avg 4.2)."
+  }
+}
+```
+
+**Day-of-week pattern** reveals which weekday has your best/worst average mood and where you log most consistently.
+
+**Time-of-day pattern** buckets entries into Morning / Afternoon / Evening / Night and shows when you feel best.
+
+---
+
 ## Weekly Trend Analysis
 
 ```
 GET /api/mood/trends/weekly
 ```
 
-Returns ISO week groupings with weekly average and entry count.
+Groups mood entries by ISO 8601 week (weeks start Monday, week 1 = week containing the first Thursday of the year). Returns weeks in chronological order.
+
+```json
+{
+  "weeklyTrends": [
+    { "week": "2026-W05", "averageMood": 3.6, "entries": 5 },
+    { "week": "2026-W06", "averageMood": 4.1, "entries": 7 },
+    { "week": "2026-W07", "averageMood": 2.9, "entries": 4 }
+  ]
+}
+```
+
+---
 
 ## Rolling 7-Day Average
 
@@ -297,11 +541,19 @@ Returns ISO week groupings with weekly average and entry count.
 GET /api/mood/trends/rolling
 ```
 
+For each calendar date with an entry, calculates the average mood score across the 7-day window ending on that date. Multiple entries on the same day are averaged before the window calculation.
+
 ```json
 {
-  "rollingAverage": [{ "date": "2026-02-10", "averageMood": 3.57 }]
+  "rollingAverage": [
+    { "date": "2026-02-10", "averageMood": 3.57 },
+    { "date": "2026-02-11", "averageMood": 3.71 },
+    { "date": "2026-02-12", "averageMood": 3.86 }
+  ]
 }
 ```
+
+---
 
 ## Burnout Risk Scoring
 
@@ -309,43 +561,109 @@ GET /api/mood/trends/rolling
 GET /api/mood/burnout-risk
 ```
 
+Calculates a composite burnout risk score from three signals. Requires at least 3 entries.
+
+**Formula:**
+
+```
+riskScore = (lowMoodDays × 2) + (max(0, 3.0 − averageMood) × 3) + (volatility × 1.5)
+```
+
+| Signal        | Weight | Description                                                                                                        |
+| ------------- | ------ | ------------------------------------------------------------------------------------------------------------------ |
+| `lowMoodDays` | × 2    | Days where moodScore ≤ 2                                                                                           |
+| `moodDeficit` | × 3    | How far the average falls below the neutral threshold 3.0 (clamped ≥ 0 so healthy averages don't reduce the score) |
+| `volatility`  | × 1.5  | Range between highest and lowest score                                                                             |
+
+**Risk Levels:**
+
+| Score | Level    |
+| ----- | -------- |
+| 0–5   | Low      |
+| 5–10  | Moderate |
+| 10+   | High     |
+
 ```json
 {
   "riskScore": 8.5,
   "riskLevel": "Moderate",
-  "metrics": { "averageMood": 2.9, "lowMoodDays": 4, "volatility": 3 }
+  "metrics": {
+    "totalEntries": 14,
+    "averageMood": 2.9,
+    "lowMoodDays": 4,
+    "volatility": 3
+  }
 }
 ```
 
-Risk Levels: `0–5 → Low` | `6–10 → Moderate` | `10+ → High`
+---
+
+## Mood Database Schema
+
+```prisma
+model MoodEntry {
+  id        String   @id @default(uuid())
+  moodScore Int
+  emoji     String
+  journalId String?  // MongoDB ObjectId — null if no journal was provided
+  userId    String
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, createdAt])  // critical for all date-range analytics queries
+}
+```
+
+**MongoDB — JournalEntry:**
+
+```ts
+{
+  userId: string        // links back to PostgreSQL User.id
+  moodEntryId: string   // back-reference to PostgreSQL MoodEntry.id
+  text: string          // up to 5000 characters
+  tags: string[]        // context slugs e.g. ["work", "sleep"]
+  createdAt: Date
+  updatedAt: Date
+}
+```
+
+**Indexes on JournalEntry:**
+
+- `{ userId: 1 }` — fast lookup by user
+- `{ moodEntryId: 1 }` (unique) — one journal per mood entry
+- `{ userId: 1, createdAt: -1 }` — future journal history + AI context queries
 
 ---
 
-# 🧘 Habits Module (Fully Implemented)
+# 🧘 Habits Module
 
 The Habits Module is the core of PulseBloom's behavioral intelligence layer.
 
-It provides a complete habit tracking engine with:
+## 🗺 Habit API Reference
 
-- Full CRUD with soft-delete (archive/restore)
-- Daily and weekly frequency support with period normalization
-- Duplicate prevention (case-insensitive, per user)
-- Streak engine with DST-safe calculations
-- Comprehensive analytics with consistency scoring
-- GitHub-style heatmap data
-- Monthly calendar summaries
-- Milestone detection and gamification
-- Drag-and-drop reordering support
-- Reminder settings per habit
-- Category, color, and icon organization
-- Paginated log history
-- Undo last completion
+| Method   | Endpoint                    | Description                                 |
+| -------- | --------------------------- | ------------------------------------------- |
+| `POST`   | `/api/habits`               | Create a habit                              |
+| `GET`    | `/api/habits`               | List active habits (`?category=`)           |
+| `GET`    | `/api/habits/archived`      | List archived habits                        |
+| `PATCH`  | `/api/habits/reorder`       | Bulk reorder (atomic transaction)           |
+| `PATCH`  | `/api/habits/:id`           | Partial update                              |
+| `DELETE` | `/api/habits/:id`           | Soft-delete (archive)                       |
+| `PATCH`  | `/api/habits/:id/restore`   | Restore archived habit                      |
+| `POST`   | `/api/habits/:id/complete`  | Mark as completed (with optional note)      |
+| `DELETE` | `/api/habits/:id/complete`  | Undo last completion                        |
+| `PATCH`  | `/api/habits/:id/reminder`  | Update reminder settings                    |
+| `GET`    | `/api/habits/:id/streak`    | Current active streak                       |
+| `GET`    | `/api/habits/:id/analytics` | Full analytics + consistency score          |
+| `GET`    | `/api/habits/:id/summary`   | Monthly calendar summary (`?month=YYYY-MM`) |
+| `GET`    | `/api/habits/:id/heatmap`   | Heatmap data (`?days=365`)                  |
+| `GET`    | `/api/habits/:id/logs`      | Paginated log history (`?page=1&limit=20`)  |
 
 ---
 
-## 📋 Habit CRUD
-
-### Create Habit
+## Create Habit
 
 ```
 POST /api/habits
@@ -375,156 +693,37 @@ POST /api/habits
 | `category`      | enum                | ❌       | `health`, `fitness`, `learning`, `mindfulness`, `productivity`, `custom` |
 | `color`         | string              | ❌       | Hex code like `#FF5733`                                                  |
 | `icon`          | string              | ❌       | Single emoji like `🧘`                                                   |
-| `targetPerWeek` | integer 1–7         | ❌       | Weekly goal (affects completion rate calculation)                        |
+| `targetPerWeek` | integer 1–7         | ❌       | Weekly goal — affects completion rate calculation                        |
 | `reminderTime`  | `HH:MM`             | ❌       | 24-hour format — used by cron job for exact-minute matching              |
-| `reminderOn`    | boolean             | ❌       | Toggle reminder on/off without clearing reminderTime                     |
-
-**Response:**
-
-```json
-{
-  "id": "uuid",
-  "title": "Morning Meditation",
-  "frequency": "daily",
-  "category": "mindfulness",
-  "color": "#7C3AED",
-  "icon": "🧘",
-  "targetPerWeek": 5,
-  "sortOrder": 0,
-  "isArchived": false,
-  "reminderTime": "08:00",
-  "reminderOn": true,
-  "userId": "uuid",
-  "createdAt": "2026-02-23T00:00:00.000Z",
-  "updatedAt": "2026-02-23T00:00:00.000Z"
-}
-```
+| `reminderOn`    | boolean             | ❌       | Toggle reminder on/off without clearing `reminderTime`                   |
 
 ---
 
-### Get All Active Habits
-
-```
-GET /api/habits
-GET /api/habits?category=mindfulness
-```
-
-Returns all non-archived habits ordered by `sortOrder`, then `createdAt`.
-Optional `?category=` filter to get habits by life area.
-
----
-
-### Get Archived Habits
-
-```
-GET /api/habits/archived
-```
-
-Returns all soft-deleted habits with full history intact.
-These can be restored at any time.
-
----
-
-### Update Habit (PATCH)
-
-```
-PATCH /api/habits/:id
-```
-
-```json
-{
-  "title": "Evening Meditation",
-  "color": "#10B981"
-}
-```
-
-True PATCH semantics — only provided fields are changed.
-If title or frequency changes, a duplicate check is re-run against other active habits (excluding the current one).
-
----
-
-### Archive Habit (Soft Delete)
-
-```
-DELETE /api/habits/:id
-```
-
-Marks the habit as archived. It disappears from all lists but **all completion log history is fully preserved**. Streak history and analytics remain intact.
-
-> **Why soft delete?** Hard-deleting a habit would cascade-delete all HabitLog rows via `onDelete: Cascade`, permanently destroying streak history and behavioral data.
-
----
-
-### Restore Habit
-
-```
-PATCH /api/habits/:id/restore
-```
-
-Brings an archived habit back to active.
-Blocked if a duplicate active habit now exists — returns an error asking the user to rename first.
-
----
-
-### Reorder Habits
-
-```
-PATCH /api/habits/reorder
-```
-
-```json
-{
-  "habits": [
-    { "id": "uuid-1", "sortOrder": 0 },
-    { "id": "uuid-2", "sortOrder": 1 },
-    { "id": "uuid-3", "sortOrder": 2 }
-  ]
-}
-```
-
-Updates `sortOrder` for multiple habits in a **single atomic database transaction**.
-If any update fails, all changes are rolled back — the list can never end up in a partially reordered state.
-
----
-
-## ✅ Habit Completion
-
-### Mark as Completed
+## Habit Completion
 
 ```
 POST /api/habits/:id/complete
 ```
 
 ```json
-{
-  "note": "Felt really focused today"
-}
+{ "note": "Felt really focused today" }
 ```
-
-Note is optional (max 300 chars).
 
 **Period normalization:**
 
 - `daily` → normalized to midnight of today
 - `weekly` → normalized to Monday midnight of the current ISO week
 
-This means completing a habit at 9am and 11pm on the same day maps to the same date, preventing duplicates. The `@@unique([habitId, date])` DB constraint enforces this at the database level.
+Completing at 9am and 11pm on the same day maps to the same date. The `@@unique([habitId, date])` constraint enforces this at the database level.
 
 **Response includes streak milestone detection:**
 
 ```json
 {
   "message": "Habit marked as completed",
-  "log": {
-    "id": "uuid",
-    "date": "2026-02-23T00:00:00.000Z",
-    "note": "Felt really focused today"
-  },
+  "log": { "id": "uuid", "date": "2026-02-23T00:00:00.000Z", "note": "..." },
   "currentStreak": 7,
-  "milestone": {
-    "days": 7,
-    "message": "Amazing! You hit a 7-day streak!"
-  }
+  "milestone": { "days": 7, "message": "Amazing! You hit a 7-day streak!" }
 }
 ```
 
@@ -532,62 +731,7 @@ This means completing a habit at 9am and 11pm on the same day maps to the same d
 
 ---
 
-### Undo Last Completion
-
-```
-DELETE /api/habits/:id/complete
-```
-
-Removes the most recent completion log.
-**Only allowed if the latest log is from the current period** — you cannot undo a log from a previous day or week.
-
----
-
-## 🔔 Reminders
-
-### Update Reminder Settings
-
-```
-PATCH /api/habits/:id/reminder
-```
-
-```json
-{
-  "reminderOn": true,
-  "reminderTime": "08:00"
-}
-```
-
-- `reminderOn: true` requires a `reminderTime` — either now or already saved
-- `reminderOn: false` disables without clearing the time (re-enabling reuses the saved time)
-
----
-
-## 📈 Habit Analytics
-
-### Current Streak
-
-```
-GET /api/habits/:id/streak
-```
-
-```json
-{
-  "currentStreak": 7
-}
-```
-
-**Streak algorithm:**
-
-- Fetches logs in DESC order (most recent first)
-- Starts counting from the most recent log, NOT from today
-- This means a 10-day streak through yesterday returns `10`, not `0`
-- A streak only breaks if a full period was genuinely skipped
-- 60-second DST tolerance prevents false breaks at daylight saving time boundaries
-
----
-
-### Full Analytics
+## Habit Analytics
 
 ```
 GET /api/habits/:id/analytics
@@ -606,52 +750,17 @@ GET /api/habits/:id/analytics
 }
 ```
 
-**Field explanations:**
+**`consistencyScore` formula:** `50% completion rate + 30% streak (normalized to personal best) + 20% recency`
 
-| Field              | What It Means                                                                                                   |
-| ------------------ | --------------------------------------------------------------------------------------------------------------- |
-| `completionRate`   | % of periods completed. If `targetPerWeek` is set, calculated against the target rather than every possible day |
-| `currentStreak`    | Consecutive periods completed right now                                                                         |
-| `longestStreak`    | Personal best consecutive run ever                                                                              |
-| `bestDayOfWeek`    | Day of week the user completes this habit most (behavioral insight)                                             |
-| `consistencyScore` | 0–100 composite score: 50% completion rate + 30% streak normalized to personal best + 20% recency               |
-
-> **Why consistencyScore?** A user with 60% completion rate and a 30-day active streak is performing much better than one with 60% rate who hasn't done it in 2 weeks. The composite score captures this nuance.
+> A user with 60% completion rate and an active 30-day streak scores significantly higher than one with 60% rate who hasn't completed the habit in two weeks.
 
 ---
 
-### Monthly Summary
-
-```
-GET /api/habits/:id/summary?month=2026-02
-```
-
-Defaults to current month if `month` not provided.
-
-```json
-{
-  "month": "2026-02",
-  "completionsThisMonth": 18,
-  "completionRate": 64.29,
-  "calendar": [
-    { "date": "2026-02-01", "completed": true },
-    { "date": "2026-02-02", "completed": false },
-    { "date": "2026-02-03", "completed": true }
-  ]
-}
-```
-
-One entry per day. Used for calendar UI views on the frontend.
-
----
-
-### Heatmap Data
+## Habit Heatmap
 
 ```
 GET /api/habits/:id/heatmap?days=365
 ```
-
-Max 730 days (2 years). Defaults to 365.
 
 ```json
 {
@@ -662,102 +771,102 @@ Max 730 days (2 years). Defaults to 365.
 }
 ```
 
-`completed: 0 | 1` — maps directly to GitHub-style color intensity on the frontend.
+`completed: 0 | 1` — maps directly to GitHub-style colour intensity on the frontend.
 
 ---
 
-### Paginated Log History
+## Monthly Summary
 
 ```
-GET /api/habits/:id/logs?page=1&limit=20
+GET /api/habits/:id/summary?month=2026-02
 ```
 
 ```json
 {
-  "logs": [
-    {
-      "id": "uuid",
-      "date": "2026-02-23T00:00:00.000Z",
-      "note": "Great session",
-      "completed": true
-    }
-  ],
-  "total": 45,
-  "page": 1,
-  "limit": 20,
-  "totalPages": 3
+  "month": "2026-02",
+  "completionsThisMonth": 18,
+  "completionRate": 64.29,
+  "calendar": [
+    { "date": "2026-02-01", "completed": true },
+    { "date": "2026-02-02", "completed": false }
+  ]
 }
 ```
 
-> **Why pagination?** A habit tracked daily for 2 years has 730 log rows. Loading all of them on every request is wasteful. Pagination loads only what the UI needs.
+---
+
+## Undo Last Completion
+
+```
+DELETE /api/habits/:id/complete
+```
+
+Removes the most recent completion log. **Only allowed if the latest log is from the current period** — you cannot undo a log from a previous day or week.
 
 ---
 
-## 🗄 Database Schema (Habits)
+## Reorder Habits
+
+```
+PATCH /api/habits/reorder
+```
+
+```json
+{
+  "habits": [
+    { "id": "uuid-1", "sortOrder": 0 },
+    { "id": "uuid-2", "sortOrder": 1 }
+  ]
+}
+```
+
+All `sortOrder` updates run in a **single atomic database transaction**. If any update fails, all changes roll back — the list can never end up partially reordered.
+
+---
+
+## Habit Database Schema
 
 ```prisma
 model Habit {
-  id           String         @id @default(uuid())
-  title        String
-  description  String?
-  frequency    HabitFrequency          // daily | weekly
-  category     HabitCategory           // health | fitness | learning | ...
-  color        String?                 // #7C3AED
-  icon         String?                 // 🧘
-  targetPerWeek Int?                   // optional weekly goal
-  sortOrder    Int            @default(0)
-  isArchived   Boolean        @default(false)
-  reminderTime String?                 // "08:00" — matched by cron job every minute
-  reminderOn   Boolean        @default(false)
-  userId       String
-  createdAt    DateTime       @default(now())
-  updatedAt    DateTime       @updatedAt
+  id            String         @id @default(uuid())
+  title         String
+  description   String?
+  frequency     HabitFrequency
+  category      HabitCategory  @default(custom)
+  color         String?
+  icon          String?
+  targetPerWeek Int?
+  sortOrder     Int            @default(0)
+  isArchived    Boolean        @default(false)
+  reminderTime  String?
+  reminderOn    Boolean        @default(false)
+  userId        String
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
 
-  @@unique([userId, title, frequency])  // prevents duplicates at DB level
+  @@unique([userId, title, frequency])
   @@index([userId])
-  @@index([reminderOn, reminderTime])   // cron job performance index
+  @@index([reminderOn, reminderTime])  // cron job performance index
 }
 
 model HabitLog {
   id        String   @id @default(uuid())
   habitId   String
-  date      DateTime                    // normalized period timestamp
+  date      DateTime
   completed Boolean  @default(true)
   note      String?
   createdAt DateTime @default(now())
 
-  @@unique([habitId, date])             // one log per period per habit
+  @@unique([habitId, date])
   @@index([habitId])
 }
 ```
 
 ---
 
-## 🗺 Habit API Reference
+# ⏰ Reminder Cron Job
 
-| Method   | Endpoint                    | Description                                 |
-| -------- | --------------------------- | ------------------------------------------- |
-| `POST`   | `/api/habits`               | Create a habit                              |
-| `GET`    | `/api/habits`               | List active habits (`?category=`)           |
-| `GET`    | `/api/habits/archived`      | List archived habits                        |
-| `PATCH`  | `/api/habits/reorder`       | Bulk reorder (atomic transaction)           |
-| `PATCH`  | `/api/habits/:id`           | Partial update                              |
-| `DELETE` | `/api/habits/:id`           | Soft-delete (archive)                       |
-| `PATCH`  | `/api/habits/:id/restore`   | Restore archived habit                      |
-| `POST`   | `/api/habits/:id/complete`  | Mark as completed (with optional note)      |
-| `DELETE` | `/api/habits/:id/complete`  | Undo last completion                        |
-| `PATCH`  | `/api/habits/:id/reminder`  | Update reminder settings                    |
-| `GET`    | `/api/habits/:id/streak`    | Current active streak                       |
-| `GET`    | `/api/habits/:id/analytics` | Full analytics + consistency score          |
-| `GET`    | `/api/habits/:id/summary`   | Monthly calendar summary (`?month=YYYY-MM`) |
-| `GET`    | `/api/habits/:id/heatmap`   | Heatmap data (`?days=365`)                  |
-| `GET`    | `/api/habits/:id/logs`      | Paginated log history (`?page=1&limit=20`)  |
-
----
-
-# ⏰ Reminder Cron Job (Fully Implemented)
-
-PulseBloom includes a production-grade background job that automatically sends habit reminder emails to users who haven't completed their habit yet.
+PulseBloom includes a production-grade background job that sends habit reminder emails to users who haven't completed their habit yet for the current period.
 
 ## How It Works
 
@@ -770,61 +879,16 @@ Every minute:
   5. Already completed → skip silently
 ```
 
-## Architecture
-
-The cron job is built with **graceful error isolation** — if one user's email fails, all other reminders still fire. This is achieved using `Promise.allSettled()` instead of `Promise.all()`.
-
-```
-node-cron (every minute)
-    ↓
-runReminderJob()
-    ↓
-prisma.habit.findMany()  ← indexed query, instant even at scale
-    ↓
-Promise.allSettled([...habits.map(processHabitReminder)])
-    ↓ per habit:
-    habitLog.findUnique()  ← already completed this period?
-    YES → skip
-    NO  → sendReminderEmail()  ← Nodemailer → Gmail SMTP
-```
+Error isolation is achieved via `Promise.allSettled()` — if one email fails, all other reminders still fire.
 
 ## Terminal Output
-
-On a successful tick:
 
 ```
 [INFO]  [ReminderCron] ⏱  Tick — 08:00
 [INFO]  [ReminderCron] Found 2 habit(s) to process
 [INFO]  ✅ Reminder email sent {"to":"ashish@gmail.com","habit":"Morning Meditation"}
-[INFO]  ✅ Reminder email sent {"to":"priya@gmail.com","habit":"Evening Run"}
 [INFO]  [ReminderCron] ✅ Tick complete {"sent":2,"skipped":0,"failed":0}
 ```
-
-When a habit is already completed:
-
-```
-[INFO]  [ReminderCron] ⏱  Tick — 08:00
-[DEBUG] [ReminderCron] Already completed — skipping
-[INFO]  [ReminderCron] ✅ Tick complete {"sent":0,"skipped":1,"failed":0}
-```
-
-## Email Template
-
-Reminder emails are sent as both **HTML** (branded, mobile-friendly) and **plain text** (spam filter friendly). The HTML email includes:
-
-- PulseBloom branded header (purple gradient)
-- Personalized greeting with the user's name
-- Habit name displayed prominently in a styled pill
-- Motivational message
-- Branded footer
-
-## Files
-
-| File                        | Purpose                                                 |
-| --------------------------- | ------------------------------------------------------- |
-| `src/jobs/reminder.cron.ts` | Cron schedule, job logic, completion check              |
-| `src/utils/mailer.ts`       | Nodemailer Gmail SMTP transport + `sendReminderEmail()` |
-| `src/utils/logger.ts`       | Structured timestamp logger used by cron output         |
 
 ## Environment Variables Required
 
@@ -834,23 +898,22 @@ SMTP_PASS=your_16_char_app_password
 EMAIL_FROM="PulseBloom 🌸 <yourgmail@gmail.com>"
 ```
 
-> **Gmail Setup:** You must use a [Google App Password](https://myaccount.google.com/apppasswords), not your real Gmail password. 2-Step Verification must be enabled on your Google account first.
-
-## Design Decisions
-
-**Why every minute?** Users set `reminderTime` as `HH:MM` (e.g. `08:30`). Running every minute ensures every possible time value is matched. Running hourly would miss users with non-zero minute times.
-
-**Why check completion before sending?** Sending reminders to users who already completed their habit is a UX antipattern that erodes trust. The check is a single indexed `findUnique` — near-zero cost.
-
-**Why `@@index([reminderOn, reminderTime])`?** Without this, the cron query scans the entire Habit table every minute. With this compound index, it jumps directly to matching rows regardless of table size.
-
-**Why `Promise.allSettled`?** One bounced email (invalid address, SMTP timeout) must never block reminders for other users. `allSettled` processes every habit independently.
+> You must use a [Google App Password](https://myaccount.google.com/apppasswords) — not your real Gmail password. 2-Step Verification must be enabled first.
 
 ---
 
-# 🤖 AI Insights Module (Fully Implemented)
+# 🤖 AI Insights Module
 
-PulseBloom uses GPT-4o-mini to cross-correlate mood scores and habit completion data, generating personalized behavioral insights like "In the 3 weeks where your mood averaged below 3.0, you completed Morning Meditation 0 times."
+PulseBloom uses **GPT-4o-mini** to cross-correlate mood scores and habit completion data, generating personalised behavioral insights.
+
+## Endpoint
+
+```
+GET /api/ai/insights
+GET /api/ai/insights?refresh=true
+```
+
+`?refresh=true` bypasses the cache and forces regeneration.
 
 ## How It Works
 
@@ -861,11 +924,11 @@ Fetch last 90 days of mood entries + habit logs (parallel DB queries)
     ↓
 Compute SHA-256 hash of raw data snapshot
     ↓
-Check AiInsight cache: does cached hash === current hash?
-    YES → return cached insights instantly (no OpenAI call)
-    NO  → continue ↓
+Check AiInsight cache: current hash === cached hash?
+    YES → return cached insights instantly (zero OpenAI cost)
+    NO  → continue
     ↓
-Pre-process data into weekly behavioral summary (ai.prompt.ts)
+Pre-process into weekly behavioral summaries (ai.prompt.ts)
     ↓
 Build system + user prompts
     ↓
@@ -877,15 +940,6 @@ Upsert AiInsight cache row in PostgreSQL
     ↓
 Return 3–6 structured insights
 ```
-
-## Endpoint
-
-```
-GET /api/ai/insights
-GET /api/ai/insights?refresh=true
-```
-
-`?refresh=true` bypasses the cache and forces regeneration — use this for a "Refresh Insights" button on the frontend.
 
 ## Response
 
@@ -913,41 +967,22 @@ GET /api/ai/insights?refresh=true
 
 ## Insight Types
 
-| Type          | Meaning                                     | Severity         |
-| ------------- | ------------------------------------------- | ---------------- |
-| `correlation` | Mood ↔ habit relationship (highest value)   | `warning`/`info` |
-| `streak`      | Notable streak pattern (current or broken)  | `info`/`success` |
-| `warning`     | Concerning pattern needing attention        | `warning`        |
-| `positive`    | Strong behavioral pattern worth celebrating | `success`        |
-| `suggestion`  | Actionable recommendation based on data     | `info`           |
+| Type          | Meaning                                     | Severity           |
+| ------------- | ------------------------------------------- | ------------------ |
+| `correlation` | Mood ↔ habit relationship (highest value)   | `warning` / `info` |
+| `streak`      | Notable streak pattern (current or broken)  | `info` / `success` |
+| `warning`     | Concerning pattern needing attention        | `warning`          |
+| `positive`    | Strong behavioral pattern worth celebrating | `success`          |
+| `suggestion`  | Actionable recommendation based on data     | `info`             |
 
 ## Caching Strategy
 
-Insights are cached in the `AiInsight` PostgreSQL table using a **SHA-256 data hash**.
-
-- Every request hashes the current 90-day mood + habit snapshot
-- If the hash matches the cached hash → return instantly (zero OpenAI cost)
-- If the hash differs → data has changed, regenerate and update cache
-- One cache row per user (upsert pattern)
-
-This means the OpenAI API is only called when the user's behavioral data actually changes.
+Results are cached in PostgreSQL (`AiInsight` table) using a **SHA-256 data hash**. The OpenAI API is only called when the user's behavioral data has actually changed — not on a fixed TTL. This means zero API cost on repeated requests with unchanged data.
 
 ## Minimum Data Requirements
 
 - At least 7 mood entries, **OR**
 - At least 1 habit with 5+ completions
-
-If neither threshold is met, the endpoint returns an empty insights array with a message explaining what's needed.
-
-## Files
-
-| File                              | Purpose                                                         |
-| --------------------------------- | --------------------------------------------------------------- |
-| `src/modules/ai/ai.repository.ts` | DB queries for mood/habit data + AiInsight cache read/write     |
-| `src/modules/ai/ai.prompt.ts`     | Data pre-processing into weekly summaries + prompt construction |
-| `src/modules/ai/ai.service.ts`    | Full pipeline: cache → pre-process → OpenAI → validate → cache  |
-| `src/modules/ai/ai.controller.ts` | HTTP adapter — extracts params, calls service, sends response   |
-| `src/modules/ai/ai.routes.ts`     | Route registration with Swagger documentation                   |
 
 ## Environment Variable Required
 
@@ -955,53 +990,25 @@ If neither threshold is met, the endpoint returns an empty insights array with a
 OPENAI_API_KEY=sk-...your-key-here...
 ```
 
-## Design Decisions
-
-**Why gpt-4o-mini?** Better correlation detection than gpt-3.5-turbo at ~10x cheaper than gpt-4o. The right cost/quality balance for per-user analytics.
-
-**Why hash-based caching instead of TTL?** TTL (e.g. "regenerate every 24 hours") wastes API calls when data hasn't changed, and goes stale when the user logs a lot of new data in one day. Hash-based caching is perfectly accurate — regenerate if and only if the data actually changed.
-
-**Why pre-process data before sending to OpenAI?** Sending raw DB rows would be expensive (many tokens) and would produce lower quality output. Pre-aggregating into weekly mood averages and weekly habit completion counts gives the AI exactly the signal it needs to detect correlations.
-
-**Why temperature 0.4?** Low temperature = consistent, structured JSON output. High temperature = creative but risks malformed JSON that breaks `JSON.parse()`.
-
 ---
 
 # 🗄 Hybrid Database Architecture
 
 ## PostgreSQL (Structured Data)
 
-Managed via **Prisma ORM** with a `pg` connection pool.
+Managed via **Prisma ORM** with a `pg` connection pool adapter.
 
-Stores:
+Stores: Users, MoodEntry, Habit, HabitLog, AiInsight cache.
 
-- Users
-- Mood entries
-- Habits + HabitLogs (all analytics data)
-
-Used for:
-
-- Filtering, pagination, sorting
-- Statistical calculations
-- Streak and analytics queries
-- Transactional operations (reordering)
-- Cron job reminder queries (indexed)
+Used for: Filtering, pagination, sorting, analytics calculations, streak queries, transactional reordering, cron job reminder queries.
 
 ## MongoDB (Unstructured Data)
 
 Managed via **Mongoose**.
 
-Stores:
+Stores: JournalEntry (mood text + tags).
 
-- Journal entries (mood text)
-- Future AI insights cache
-- Community posts (upcoming)
-
-Optimized for:
-
-- Flexible schemas
-- Text-heavy storage
-- AI model integration
+Optimised for: Flexible schemas, text-heavy storage, future AI model integrations, community posts (upcoming).
 
 ---
 
@@ -1009,18 +1016,19 @@ Optimized for:
 
 - `bcrypt` password hashing (salt rounds: 10)
 - JWT-based stateless authentication
-- Route-level `protect` middleware
-- Global centralized error handler with typed error responses
-- ZodError handled distinctly (field-level validation errors)
+- Route-level `protect` middleware on all user endpoints
+- Global centralised error handler — ZodError → 400 with field-level detail, AppErrors → correct HTTP status, unknown errors → 500 (never leaks internals)
 - `express-rate-limit` (100 req / 15 min globally)
 - `helmet` security headers
 - CORS enabled
 - Environment variable validation on startup
-- Atomic DB transactions for multi-row operations
-- Soft-delete pattern preserves all historical data
-- DB-level unique constraints as safety net for race conditions
-- `@@index` on hot query columns for performance
-- Cron job error isolation — one failure never affects other users
+- Atomic database transactions for multi-row operations (habit reorder)
+- Soft-delete pattern preserves all historical behavioral data
+- DB-level unique constraints as a safety net against race conditions
+- `@@index` on all hot query columns for performance
+- Ownership checks (`assertMoodOwnership`) before every write operation
+- Cron job error isolation — one email failure never blocks other users
+- MongoDB cleanup runs before Postgres delete — prevents orphaned documents
 - Gmail SMTP with TLS for secure email delivery
 
 ---
@@ -1036,9 +1044,9 @@ http://localhost:5000/api-docs
 Features:
 
 - Bearer token authentication
-- All request/response schemas documented
-- Organized by feature module
-- Real-time API testing
+- All request/response schemas documented with examples
+- Organised by feature module (Auth / Mood / Habits / AI Insights)
+- Real-time API testing in-browser
 
 ---
 
@@ -1067,16 +1075,19 @@ DATABASE_URL=postgresql://postgres:password@localhost:5432/pulsebloom
 MONGO_URI=mongodb://localhost:27017/pulsebloom
 JWT_SECRET=your_super_secret_key
 
-# Gmail SMTP — for reminder emails
+# Gmail SMTP — for habit reminder emails
 SMTP_USER=yourgmail@gmail.com
 SMTP_PASS=your_16_char_app_password
 EMAIL_FROM="PulseBloom 🌸 <yourgmail@gmail.com>"
+
+# OpenAI — for AI insights
+OPENAI_API_KEY=sk-...your-key-here...
 ```
 
 > **Gmail App Password Setup:**
 >
 > 1. Go to [myaccount.google.com/security](https://myaccount.google.com/security) → enable 2-Step Verification
-> 2. Go to [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) → create App Password named `PulseBloom`
+> 2. Go to [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) → create an App Password named `PulseBloom`
 > 3. Copy the 16-character password (remove spaces) → paste into `SMTP_PASS`
 
 ## 4. Setup PostgreSQL
@@ -1085,7 +1096,7 @@ EMAIL_FROM="PulseBloom 🌸 <yourgmail@gmail.com>"
 CREATE DATABASE pulsebloom;
 ```
 
-Run migrations:
+Run migrations and generate the Prisma client:
 
 ```bash
 npx prisma migrate dev --name init
@@ -1104,7 +1115,7 @@ npm run dev
 
 Server runs at: `http://localhost:5000`
 
-On successful startup you should see:
+On successful startup:
 
 ```
 MongoDB Connected
@@ -1117,58 +1128,66 @@ Server running on port 5000
 
 # 📦 Feature Status
 
-| Feature                             | Status      |
-| ----------------------------------- | ----------- |
-| Authentication (Register/Login)     | ✅ Complete |
-| Protected Routes (JWT middleware)   | ✅ Complete |
-| Mood CRUD                           | ✅ Complete |
-| Mood Pagination + Date Filtering    | ✅ Complete |
-| Mood Analytics Engine               | ✅ Complete |
-| Weekly Trend Analysis               | ✅ Complete |
-| Rolling 7-Day Average               | ✅ Complete |
-| Burnout Risk Scoring                | ✅ Complete |
-| Swagger Documentation               | ✅ Complete |
-| Hybrid DB Architecture (PG + Mongo) | ✅ Complete |
-| Habit CRUD (Create, Read, Update)   | ✅ Complete |
-| Habit Soft Delete + Restore         | ✅ Complete |
-| Habit Duplicate Prevention          | ✅ Complete |
-| Habit Categories, Color, Icon       | ✅ Complete |
-| Habit Reordering (Drag & Drop)      | ✅ Complete |
-| Habit Completion + Undo             | ✅ Complete |
-| Streak Engine (DST-safe)            | ✅ Complete |
-| Streak Milestone Detection          | ✅ Complete |
-| Habit Analytics + Consistency Score | ✅ Complete |
-| Best Day of Week Insight            | ✅ Complete |
-| Monthly Calendar Summary            | ✅ Complete |
-| GitHub-style Heatmap                | ✅ Complete |
-| Paginated Log History               | ✅ Complete |
-| Reminder Settings                   | ✅ Complete |
-| targetPerWeek Goal Support          | ✅ Complete |
-| Global Error Handler (Zod + App)    | ✅ Complete |
-| Reminder Cron Job (node-cron)       | ✅ Complete |
-| Structured Logger                   | ✅ Complete |
-| Gmail SMTP Email Delivery           | ✅ Complete |
-| AI-powered Insights                 | ✅ Complete |
-| Anonymous Community Posts           | 🔮 Upcoming |
-| Challenge System                    | 🔮 Upcoming |
-| WebSocket Real-time Updates         | 🔮 Upcoming |
-| Redis Caching                       | 🔮 Upcoming |
-| Docker Containerization             | 🔮 Upcoming |
-| AWS Deployment                      | 🔮 Upcoming |
+| Feature                                    | Status      |
+| ------------------------------------------ | ----------- |
+| Authentication (Register/Login)            | ✅ Complete |
+| Protected Routes (JWT middleware)          | ✅ Complete |
+| Mood CRUD (Create, Read, Update, Delete)   | ✅ Complete |
+| Mood Pagination + Date Filtering           | ✅ Complete |
+| Mood Entry Hydration (journal + tags)      | ✅ Complete |
+| Mood Journal Cross-store Sync (PG + Mongo) | ✅ Complete |
+| Mood Context Tags                          | ✅ Complete |
+| Mood Analytics Engine                      | ✅ Complete |
+| Mood Logging Streak                        | ✅ Complete |
+| Mood Heatmap (GitHub-style)                | ✅ Complete |
+| Monthly Mood Calendar Summary              | ✅ Complete |
+| Day-of-Week + Time-of-Day Pattern Insights | ✅ Complete |
+| Weekly Trend Analysis (ISO 8601)           | ✅ Complete |
+| Rolling 7-Day Average                      | ✅ Complete |
+| Burnout Risk Scoring                       | ✅ Complete |
+| Swagger Documentation                      | ✅ Complete |
+| Hybrid DB Architecture (PG + Mongo)        | ✅ Complete |
+| Habit CRUD (Create, Read, Update)          | ✅ Complete |
+| Habit Soft Delete + Restore                | ✅ Complete |
+| Habit Duplicate Prevention                 | ✅ Complete |
+| Habit Categories, Color, Icon              | ✅ Complete |
+| Habit Reordering (Drag & Drop, Atomic TX)  | ✅ Complete |
+| Habit Completion + Undo                    | ✅ Complete |
+| Habit Streak Engine (DST-safe)             | ✅ Complete |
+| Streak Milestone Detection                 | ✅ Complete |
+| Habit Analytics + Consistency Score        | ✅ Complete |
+| Best Day of Week Insight                   | ✅ Complete |
+| Monthly Habit Calendar Summary             | ✅ Complete |
+| GitHub-style Habit Heatmap                 | ✅ Complete |
+| Paginated Habit Log History                | ✅ Complete |
+| Habit Reminder Settings                    | ✅ Complete |
+| targetPerWeek Goal Support                 | ✅ Complete |
+| Global Error Handler (Zod + App + Unknown) | ✅ Complete |
+| Reminder Cron Job (node-cron)              | ✅ Complete |
+| Structured Logger                          | ✅ Complete |
+| Gmail SMTP Email Delivery                  | ✅ Complete |
+| AI-powered Insights (GPT-4o-mini)          | ✅ Complete |
+| SHA-256 Hash-based AI Cache                | ✅ Complete |
+| Anonymous Community Posts                  | 🔮 Upcoming |
+| Challenge System                           | 🔮 Upcoming |
+| WebSocket Real-time Updates (Socket.io)    | 🔮 Upcoming |
+| Redis Caching                              | 🔮 Upcoming |
+| Docker Containerization                    | 🔮 Upcoming |
+| AWS Deployment                             | 🔮 Upcoming |
 
 ---
 
 # 🔮 Upcoming Features
 
-**Redis Caching** — Analytics endpoints (`/analytics`, `/streak`, `/heatmap`) are read-heavy. Redis caching with a 5-minute TTL will eliminate redundant recalculations. Cache is invalidated on every `completeHabit()` call.
+**Redis Caching** — Analytics endpoints (`/analytics`, `/streak`, `/heatmap`) are read-heavy. Redis will cache results with a short TTL, invalidated on every `addMood()` or `completeHabit()` call, eliminating redundant recalculations at scale.
 
-**Anonymous Community Posts** — Users can share habit milestones or mood reflections anonymously. Stored in MongoDB.
+**Anonymous Community Posts** — Users can share habit milestones or mood reflections anonymously. Stored in MongoDB for flexible schema. Includes an upvote system.
 
-**Challenge System** — Time-boxed challenges (e.g. "30-day meditation challenge") that multiple users can join, with a shared leaderboard.
+**Challenge System** — Time-boxed group challenges (e.g. "30-day meditation challenge") with shared leaderboards and progress tracking that links directly to the existing habit engine.
 
-**WebSocket Real-time Updates** — Streak updates and milestone achievements pushed to the frontend in real time via Socket.io.
+**WebSocket Real-time Updates** — Streak milestones and habit completion events pushed to the frontend in real time via Socket.io, enabling live celebration animations without polling.
 
-**Docker + AWS** — Full containerization with Docker Compose (Node, PostgreSQL, MongoDB, Redis) and AWS ECS deployment with RDS and DocumentDB.
+**Docker + AWS** — Full containerisation with Docker Compose (Node, PostgreSQL, MongoDB, Redis) and AWS ECS deployment with RDS and DocumentDB.
 
 ---
 
