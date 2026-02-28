@@ -11,51 +11,124 @@ generator client {
 
 // ─────────────────────────────────────────────────────────────────
 // USER
+//
+// New fields added for auth enhancement:
+//   isVerified  — false until user clicks email verification link
+//   updatedAt   — auto-updated on every write (needed for token invalidation)
 // ─────────────────────────────────────────────────────────────────
 model User {
-  id        String   @id @default(uuid())
-  email     String   @unique
-  password  String
-  name      String
-  createdAt DateTime @default(now())
+  id         String   @id @default(uuid())
+  email      String   @unique
+  password   String
+  name       String
+  isVerified Boolean  @default(false) // ← NEW: email must be verified before login is permitted
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt      // ← NEW: tracks last profile mutation
 
-  moods     MoodEntry[]
-  habits    Habit[]
-  aiInsight AiInsight?
+  moods              MoodEntry[]
+  habits             Habit[]
+  aiInsight          AiInsight?
+  refreshTokens      RefreshToken[]        // ← NEW
+  emailVerifications EmailVerification[]   // ← NEW
+  passwordResets     PasswordReset[]       // ← NEW
 }
 
 // ─────────────────────────────────────────────────────────────────
-// MOOD ENTRY
+// REFRESH TOKEN
 //
-// Stores structured mood data in PostgreSQL.
-// Journal text lives in MongoDB (JournalEntry) and is linked via journalId.
+// One user can have many active refresh tokens (multi-device support).
 //
-// Mood module endpoints:
-//   POST   /api/mood                    → create
-//   GET    /api/mood                    → paginated list
-//   GET    /api/mood/:id                → single (hydrated with journal)
-//   PATCH  /api/mood/:id                → update
-//   DELETE /api/mood/:id                → delete
-//   GET    /api/mood/analytics          → stats summary
-//   GET    /api/mood/streak             → consecutive logging streak
-//   GET    /api/mood/heatmap            → GitHub-style daily heatmap
-//   GET    /api/mood/summary/monthly    → calendar month view
-//   GET    /api/mood/insights/daily     → day-of-week + time-of-day patterns
-//   GET    /api/mood/trends/weekly      → ISO week groupings
-//   GET    /api/mood/trends/rolling     → 7-day rolling average
-//   GET    /api/mood/burnout-risk       → burnout risk score
+// Flow:
+//   POST /api/auth/login         → creates RefreshToken row, returns token in body
+//   POST /api/auth/refresh-token → validates token, rotates it (delete old, create new)
+//   POST /api/auth/logout        → deletes the specific RefreshToken row
 //
-// Indexes:
-//   @@index([userId])           → required for all user-scoped queries
-//   @@index([userId, createdAt]) → required for date-range analytics queries
-//                                  Without this, every analytics call full-scans
-//                                  the table as the dataset grows.
+// Security model:
+//   • Token stored as plain string (already a 256-bit random hex — no need to hash)
+//   • expiresAt checked on every use
+//   • isRevoked set on logout (allows audit trail without hard delete)
+//   • @@index([token]) for O(1) lookup on every refresh/logout call
+// ─────────────────────────────────────────────────────────────────
+model RefreshToken {
+  id        String   @id @default(uuid())
+  token     String   @unique              // 256-bit random hex generated in service
+  userId    String
+  expiresAt DateTime                      // set to now() + 7 days on creation
+  isRevoked Boolean  @default(false)      // true after logout; row kept for audit
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])   // critical: every refresh request looks up by token
+  @@index([userId])  // needed for "logout all devices" (delete all by userId)
+}
+
+// ─────────────────────────────────────────────────────────────────
+// EMAIL VERIFICATION
+//
+// Created on register. Deleted after successful verification.
+//
+// Flow:
+//   POST /api/auth/register      → creates row, sends OTP email
+//   POST /api/auth/verify-email  → checks OTP + expiry, sets user.isVerified = true, deletes row
+//   POST /api/auth/resend-verification → deletes old row, creates new row, sends new OTP
+//
+// Security:
+//   • OTP is a 6-digit number (100000–999999), easy for users to type
+//   • expiresAt = now() + 15 minutes (short window reduces brute-force risk)
+//   • Rate limiter on resend route prevents OTP spam
+//   • Row deleted after use — OTP is single-use
+// ─────────────────────────────────────────────────────────────────
+model EmailVerification {
+  id        String   @id @default(uuid())
+  otp       String                        // 6-digit OTP, stored as string
+  userId    String
+  expiresAt DateTime                      // now() + 15 minutes
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// PASSWORD RESET
+//
+// Created when user requests a reset. Deleted after use.
+//
+// Flow:
+//   POST /api/auth/forgot-password  → creates row, sends reset link with token
+//   POST /api/auth/reset-password   → validates token + expiry, hashes new password,
+//                                      updates user, revokes all refresh tokens, deletes row
+//
+// Security:
+//   • Token = 64-char random hex (crypto.randomBytes(32).toString('hex'))
+//   • expiresAt = now() + 1 hour
+//   • Resetting password revokes ALL existing refresh tokens (forces re-login everywhere)
+//   • Row deleted after use — token is single-use
+//   • Always return 200 on forgot-password even if email not found (prevents user enumeration)
+// ─────────────────────────────────────────────────────────────────
+model PasswordReset {
+  id        String   @id @default(uuid())
+  token     String   @unique              // 64-char random hex
+  userId    String
+  expiresAt DateTime                      // now() + 1 hour
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([token])   // lookup by token on reset
+  @@index([userId])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// MOOD ENTRY (unchanged)
 // ─────────────────────────────────────────────────────────────────
 model MoodEntry {
   id        String   @id @default(uuid())
   moodScore Int
   emoji     String
-  journalId String?  // MongoDB ObjectId — null if no journal was provided
+  journalId String?
   userId    String
   createdAt DateTime @default(now())
 
@@ -66,7 +139,7 @@ model MoodEntry {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// HABIT
+// HABIT (unchanged)
 // ─────────────────────────────────────────────────────────────────
 enum HabitFrequency {
   daily
@@ -93,7 +166,7 @@ model Habit {
   targetPerWeek Int?
   sortOrder     Int            @default(0)
   isArchived    Boolean        @default(false)
-  reminderTime  String?        // "HH:MM" — matched by cron job every minute
+  reminderTime  String?
   reminderOn    Boolean        @default(false)
   userId        String
   createdAt     DateTime       @default(now())
@@ -108,12 +181,12 @@ model Habit {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// HABIT LOG
+// HABIT LOG (unchanged)
 // ─────────────────────────────────────────────────────────────────
 model HabitLog {
   id        String   @id @default(uuid())
   habitId   String
-  date      DateTime // normalized period timestamp (midnight daily / Monday weekly)
+  date      DateTime
   completed Boolean  @default(true)
   note      String?
   createdAt DateTime @default(now())
@@ -125,13 +198,7 @@ model HabitLog {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// AI INSIGHT CACHE
-//
-// One row per user. Stores generated insights + a SHA-256 hash
-// of the data snapshot used to generate them.
-//
-// Cache hit:  current_hash == stored dataHash → return cached (no OpenAI call)
-// Cache miss: current_hash != stored dataHash → regenerate and upsert
+// AI INSIGHT CACHE (unchanged)
 // ─────────────────────────────────────────────────────────────────
 model AiInsight {
   id          String   @id @default(uuid())

@@ -1,10 +1,12 @@
+// src/app.ts
+
 import express from "express";
 import cors from "cors";
 import helmet from "helmet";
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./config/swagger";
-import rateLimit from "express-rate-limit";
 import { errorHandler } from "./middlewares/error.middleware";
+import { globalLimiter } from "./middlewares/rateLimiter"; // ← now imported from rateLimiter.ts
 
 import authRoutes from "./modules/auth/auth.routes";
 import moodRoutes from "./modules/mood/mood.routes";
@@ -12,32 +14,36 @@ import habitRoutes from "./modules/habits/habit.routes";
 
 const app = express();
 
-/**
- * Global Middlewares
- */
+// ─────────────────────────────────────────────────────────────────
+// GLOBAL MIDDLEWARES
+// (order matters — these run for every single request)
+// ─────────────────────────────────────────────────────────────────
 app.use(express.json());
-app.use(cors());
-app.use(helmet());
 
-/**
- * Rate Limiter
- * Prevents abuse of API
- */
 app.use(
-  rateLimit({
-    windowMs: 15 * 60 * 1000,
-    max: 100,
+  cors({
+    // In production, replace * with your actual frontend origin:
+    // origin: "https://yourfrontend.com"
+    origin: "*",
+    methods: ["GET", "POST", "PATCH", "DELETE"],
+    allowedHeaders: ["Content-Type", "Authorization"],
   }),
 );
 
-/**
- * Swagger API Documentation Route
- */
+app.use(helmet()); // Sets security headers (X-Frame-Options, CSP, etc.)
+
+// Global rate limiter — 100 req / 15 min per IP across ALL routes.
+// Auth-specific routes have additional tighter limiters applied directly in auth.routes.ts.
+app.use(globalLimiter);
+
+// ─────────────────────────────────────────────────────────────────
+// SWAGGER API DOCUMENTATION
+// ─────────────────────────────────────────────────────────────────
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
-/**
- * Health Check Route
- */
+// ─────────────────────────────────────────────────────────────────
+// HEALTH CHECK
+// ─────────────────────────────────────────────────────────────────
 app.get("/health", (req, res) => {
   res.status(200).json({
     status: "OK",
@@ -45,12 +51,17 @@ app.get("/health", (req, res) => {
   });
 });
 
+// ─────────────────────────────────────────────────────────────────
+// ROUTES
+// ─────────────────────────────────────────────────────────────────
 app.use("/api/auth", authRoutes);
 app.use("/api/mood", moodRoutes);
 app.use("/api/habits", habitRoutes);
-app.use("/api/ai", require("./modules/ai/ai.routes").default); // Import AI routes lazily to avoid circular dependency
+app.use("/api/ai", require("./modules/ai/ai.routes").default);
 
-// Must be after routes
+// ─────────────────────────────────────────────────────────────────
+// GLOBAL ERROR HANDLER — must always be the LAST middleware
+// ─────────────────────────────────────────────────────────────────
 app.use(errorHandler);
 
 export default app;

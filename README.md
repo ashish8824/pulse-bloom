@@ -173,9 +173,38 @@ pulsebloom-backend/
 
 # 🔐 Authentication
 
-PulseBloom uses **JWT-based stateless authentication**.
+PulseBloom uses a **dual-token JWT authentication system** with email verification.
 
-### Register
+---
+
+## Auth Flow Overview
+
+```
+Register → OTP Email → Verify Email → Login → Access Token (15m) + Refresh Token (7d)
+```
+
+- **Access Token** — short-lived JWT (15 min), sent in `Authorization: Bearer <token>` header
+- **Refresh Token** — long-lived opaque token (7 days), stored in DB, used to rotate both tokens silently
+
+---
+
+## API Reference
+
+| Method | Endpoint                        | Auth | Rate Limit | Description                      |
+| ------ | ------------------------------- | ---- | ---------- | -------------------------------- |
+| `POST` | `/api/auth/register`            | ❌   | 10/15min   | Create account, sends OTP email  |
+| `POST` | `/api/auth/verify-email`        | ❌   | —          | Confirm OTP, issues tokens       |
+| `POST` | `/api/auth/resend-verification` | ❌   | 3/15min    | Re-send OTP email                |
+| `POST` | `/api/auth/login`               | ❌   | 10/15min   | Login, issues tokens             |
+| `POST` | `/api/auth/refresh-token`       | ❌   | —          | Rotate access + refresh tokens   |
+| `POST` | `/api/auth/logout`              | ✅   | —          | Revoke current session           |
+| `GET`  | `/api/auth/me`                  | ✅   | —          | Get authenticated user profile   |
+| `POST` | `/api/auth/forgot-password`     | ❌   | 3/15min    | Send password reset email        |
+| `POST` | `/api/auth/reset-password`      | ❌   | —          | Set new password via reset token |
+
+---
+
+## Register
 
 ```
 POST /api/auth/register
@@ -185,11 +214,63 @@ POST /api/auth/register
 {
   "name": "Ashish Anand",
   "email": "ashish@example.com",
-  "password": "securepassword"
+  "password": "MyPass@123"
 }
 ```
 
-### Login
+**Password rules:** min 8 chars, must contain uppercase, lowercase, number, and special character (`@$!%*?&`).
+
+**Response `201`** — no tokens issued yet. User must verify email first.
+
+```json
+{
+  "message": "Registration successful. Please check your email for the verification code.",
+  "user": {
+    "id": "uuid",
+    "email": "ashish@example.com",
+    "name": "Ashish Anand",
+    "isVerified": false
+  }
+}
+```
+
+---
+
+## Verify Email
+
+```
+POST /api/auth/verify-email
+```
+
+```json
+{
+  "email": "ashish@example.com",
+  "otp": "482931"
+}
+```
+
+A 6-digit OTP is sent to the registered email. It expires in **15 minutes** and is single-use.
+
+**Response `200`** — first time tokens are issued:
+
+```json
+{
+  "message": "Email verified successfully. Welcome to PulseBloom!",
+  "user": {
+    "id": "uuid",
+    "email": "ashish@example.com",
+    "name": "Ashish Anand",
+    "isVerified": true
+  },
+  "accessToken": "eyJhbGci...",
+  "refreshToken": "a1b2c3d4...64hexchars",
+  "accessTokenExpiresInSeconds": 840
+}
+```
+
+---
+
+## Login
 
 ```
 POST /api/auth/login
@@ -198,23 +279,129 @@ POST /api/auth/login
 ```json
 {
   "email": "ashish@example.com",
-  "password": "securepassword"
+  "password": "MyPass@123"
 }
 ```
+
+**Response `200`:**
+
+```json
+{
+  "user": {
+    "id": "uuid",
+    "email": "ashish@example.com",
+    "name": "Ashish Anand",
+    "isVerified": true
+  },
+  "accessToken": "eyJhbGci...",
+  "refreshToken": "a1b2c3d4...64hexchars",
+  "accessTokenExpiresInSeconds": 840
+}
+```
+
+---
+
+## Refresh Token (Token Rotation)
+
+```
+POST /api/auth/refresh-token
+```
+
+```json
+{ "refreshToken": "a1b2c3d4...64hexchars" }
+```
+
+The old refresh token is **immediately revoked**. The client must store the new refresh token returned in the response. Returns the same shape as login.
+
+**Security:** If a revoked token is reused (stolen token attack), all sessions for that user are immediately terminated.
+
+---
+
+## Logout
+
+```
+POST /api/auth/logout
+Authorization: Bearer <accessToken>
+```
+
+```json
+{ "refreshToken": "a1b2c3d4...64hexchars" }
+```
+
+Revokes the refresh token for this device only. Returns `200` even if already revoked (idempotent).
+
+---
+
+## Forgot Password
+
+```
+POST /api/auth/forgot-password
+```
+
+```json
+{ "email": "ashish@example.com" }
+```
+
+Always returns `200` regardless of whether the email is registered (prevents user enumeration). A reset link valid for **1 hour** is sent if the email exists.
+
+---
+
+## Reset Password
+
+```
+POST /api/auth/reset-password
+```
+
+```json
+{
+  "token": "c9f3a2...64hexchars",
+  "password": "NewPass@456",
+  "confirmPassword": "NewPass@456"
+}
+```
+
+Validates the token, saves the new password, and **revokes all refresh tokens** (forces re-login on all devices).
+
+---
+
+## Get Profile
+
+```
+GET /api/auth/me
+Authorization: Bearer <accessToken>
+```
+
+```json
+{
+  "user": {
+    "id": "uuid",
+    "email": "ashish@example.com",
+    "name": "Ashish Anand",
+    "isVerified": true,
+    "createdAt": "2026-02-28T00:00:00.000Z",
+    "updatedAt": "2026-02-28T00:00:00.000Z"
+  }
+}
+```
+
+---
+
+## Token Reference
+
+| Property             | Value                    |
+| -------------------- | ------------------------ |
+| Access token expiry  | 15 minutes               |
+| Refresh token expiry | 7 days                   |
+| Password hashing     | bcrypt, 12 rounds        |
+| OTP expiry           | 15 minutes               |
+| Reset token expiry   | 1 hour                   |
+| Strategy             | Dual-token with rotation |
 
 All protected routes require:
 
 ```
-Authorization: Bearer <token>
+Authorization: Bearer <accessToken>
 ```
-
-| Property         | Value             |
-| ---------------- | ----------------- |
-| Token expiry     | 1 day             |
-| Password hashing | bcrypt, 10 rounds |
-| Strategy         | Stateless JWT     |
-
----
 
 # 📊 Mood Module
 
@@ -1014,18 +1201,28 @@ Optimised for: Flexible schemas, text-heavy storage, future AI model integration
 
 # 🛡 Security & Reliability
 
-- `bcrypt` password hashing (salt rounds: 10)
-- JWT-based stateless authentication
-- Route-level `protect` middleware on all user endpoints
+- `bcrypt` password hashing (salt rounds: 12)
+- Strong password policy enforced at validation layer (uppercase, lowercase, number, special char)
+- Dual-token JWT system — short-lived access tokens (15m) + long-lived refresh tokens (7d)
+- Refresh token rotation — every `/refresh-token` call revokes the old token and issues a new one
+- Refresh token reuse detection — using a revoked token terminates all sessions for that user
+- Email verification required before login — unverified accounts cannot access the API
+- OTP generated with `crypto.randomInt` (cryptographically secure, not `Math.random`)
+- Password reset tokens generated with `crypto.randomBytes(32)` (256-bit randomness)
+- Password reset revokes all existing refresh tokens — forces re-login on all devices
+- All forgot-password and resend-verification responses are identical (prevents user enumeration)
+- Route-level `protect` middleware on all user endpoints — validates access token, attaches `req.userId`
+- `TokenExpiredError` distinguished from `JsonWebTokenError` — client knows to refresh vs re-login
 - Global centralised error handler — ZodError → 400 with field-level detail, AppErrors → correct HTTP status, unknown errors → 500 (never leaks internals)
-- `express-rate-limit` (100 req / 15 min globally)
+- Tiered rate limiting — global (100 req/15min), auth login/register (10 req/15min), OTP resend + forgot-password (3 req/15min)
+- `skipSuccessfulRequests: true` on login limiter — only failed attempts count toward the limit
 - `helmet` security headers
 - CORS enabled
-- Environment variable validation on startup
+- Environment variable validation on startup — server refuses to start with missing required vars
 - Atomic database transactions for multi-row operations (habit reorder)
 - Soft-delete pattern preserves all historical behavioral data
 - DB-level unique constraints as a safety net against race conditions
-- `@@index` on all hot query columns for performance
+- `@@index` on all hot query columns for performance — including `@@index([token])` for O(1) refresh token lookup
 - Ownership checks (`assertMoodOwnership`) before every write operation
 - Cron job error isolation — one email failure never blocks other users
 - MongoDB cleanup runs before Postgres delete — prevents orphaned documents
@@ -1073,15 +1270,19 @@ Create a `.env` file:
 PORT=5000
 DATABASE_URL=postgresql://postgres:password@localhost:5432/pulsebloom
 MONGO_URI=mongodb://localhost:27017/pulsebloom
-JWT_SECRET=your_super_secret_key
+JWT_SECRET=your_super_secret_key_min_32_chars
 
-# Gmail SMTP — for habit reminder emails
+# Gmail SMTP — for verification OTP + password reset + habit reminder emails
 SMTP_USER=yourgmail@gmail.com
 SMTP_PASS=your_16_char_app_password
 EMAIL_FROM="PulseBloom 🌸 <yourgmail@gmail.com>"
 
-# OpenAI — for AI insights
-OPENAI_API_KEY=sk-...your-key-here...
+# Frontend URL — used in password reset email link
+# Development: http://localhost:3000  |  Production: https://yourapp.com
+APP_URL=http://localhost:3000
+
+# GROQ — for AI insights
+GROQ_API_KEY=sk-...your-key-here...
 ```
 
 > **Gmail App Password Setup:**
@@ -1131,6 +1332,11 @@ Server running on port 5000
 | Feature                                    | Status      |
 | ------------------------------------------ | ----------- |
 | Authentication (Register/Login)            | ✅ Complete |
+| Email Verification (OTP flow)              | ✅ Complete |
+| Refresh Token + Token Rotation             | ✅ Complete |
+| Forgot Password / Reset Password           | ✅ Complete |
+| GET /me — User Profile Endpoint            | ✅ Complete |
+| Tiered Auth Rate Limiting                  | ✅ Complete |
 | Protected Routes (JWT middleware)          | ✅ Complete |
 | Mood CRUD (Create, Read, Update, Delete)   | ✅ Complete |
 | Mood Pagination + Date Filtering           | ✅ Complete |
