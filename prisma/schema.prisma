@@ -10,27 +10,117 @@ generator client {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// PLAN ENUM
+//
+// Controls feature access across the entire platform.
+// The plan field lives on User for fast O(1) reads in middleware.
+// The Subscription model stores the full billing lifecycle separately.
+//
+// Tier limits (enforced by planLimiter.ts middleware):
+//   free       → max 3 habits, 30-day mood history, no AI insights
+//   pro        → unlimited habits, full history, AI insights
+//   enterprise → everything in pro + team/org features
+// ─────────────────────────────────────────────────────────────────
+enum Plan {
+  free
+  pro
+  enterprise
+}
+
+// ─────────────────────────────────────────────────────────────────
+// SUBSCRIPTION STATUS ENUM
+//
+// Mirrors Stripe subscription statuses so our DB always reflects
+// the current billing state after webhook events.
+// ─────────────────────────────────────────────────────────────────
+enum SubscriptionStatus {
+  active
+  cancelled
+  past_due
+  trialing
+  incomplete
+}
+
+// ─────────────────────────────────────────────────────────────────
 // USER
 //
 // New fields added for auth enhancement:
-//   isVerified  — false until user clicks email verification link
-//   updatedAt   — auto-updated on every write (needed for token invalidation)
+//   isVerified      — false until user clicks email verification link
+//   updatedAt       — auto-updated on every write (needed for token invalidation)
+//
+// New fields added for monetization (Phase 1):
+//   plan            — current active plan (fast read for middleware)
+//   stripeCustomerId   — set on first Stripe checkout, used for billing portal
+//   stripeSubscriptionId — tracks the active Stripe subscription
+//
+// New fields added for engagement (Phase 2, added now to avoid future migration):
+//   weeklyDigestOn  — opt-in weekly email summary (Saturday 8am cron)
+//   moodReminderTime — HH:MM for daily mood check-in nudge
+//   moodReminderOn  — toggle mood reminder without clearing the time
 // ─────────────────────────────────────────────────────────────────
 model User {
-  id         String   @id @default(uuid())
-  email      String   @unique
-  password   String
-  name       String
-  isVerified Boolean  @default(false) // ← NEW: email must be verified before login is permitted
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt      // ← NEW: tracks last profile mutation
+  id                   String   @id @default(uuid())
+  email                String   @unique
+  password             String
+  name                 String
+  isVerified           Boolean  @default(false)
+  createdAt            DateTime @default(now())
+  updatedAt            DateTime @updatedAt
+
+  // ── Monetization ──────────────────────────────────────────────
+  plan                 Plan     @default(free)           // ← denormalized for fast middleware reads
+  stripeCustomerId     String?  @unique                  // ← set after first Stripe checkout session
+  stripeSubscriptionId String?  @unique                  // ← tracks active Stripe sub (null = free)
+
+  // ── Engagement (Phase 2 — pre-added to avoid later migration) ─
+  weeklyDigestOn       Boolean  @default(true)           // ← Saturday 8am email digest opt-in
+  moodReminderTime     String?                           // ← HH:MM — matches cron tick format
+  moodReminderOn       Boolean  @default(false)          // ← toggle without clearing time
 
   moods              MoodEntry[]
   habits             Habit[]
   aiInsight          AiInsight?
-  refreshTokens      RefreshToken[]        // ← NEW
-  emailVerifications EmailVerification[]   // ← NEW
-  passwordResets     PasswordReset[]       // ← NEW
+  refreshTokens      RefreshToken[]
+  emailVerifications EmailVerification[]
+  passwordResets     PasswordReset[]
+  subscription       Subscription?                       // ← one-to-one billing record
+
+  @@index([moodReminderOn, moodReminderTime])  // cron job: find users with reminders due this minute
+}
+
+// ─────────────────────────────────────────────────────────────────
+// SUBSCRIPTION
+//
+// Stores the full billing lifecycle for a user.
+// Created when a user upgrades, updated via Stripe webhooks.
+//
+// Why separate from User?
+//   • Keeps User lean — plan field gives fast access for middleware
+//   • Subscription holds audit-level billing detail (period dates, status history)
+//   • One-to-one: one user → at most one active subscription record
+//
+// Flow:
+//   POST /api/billing/checkout       → creates Stripe session, creates Subscription row
+//   POST /api/billing/webhook        → on payment_succeeded → set status=active, update User.plan
+//                                      on subscription_cancelled → set status=cancelled, revert User.plan=free
+//   GET  /api/billing/status         → returns this row for the frontend billing page
+// ─────────────────────────────────────────────────────────────────
+model Subscription {
+  id                   String             @id @default(uuid())
+  userId               String             @unique               // one subscription per user
+  plan                 Plan                                     // mirrors User.plan (source of truth here)
+  status               SubscriptionStatus @default(trialing)
+  stripeSubscriptionId String?            @unique               // null until Stripe confirms
+  currentPeriodStart   DateTime?                               // from Stripe webhook payload
+  currentPeriodEnd     DateTime?                               // used to show renewal date in UI
+  cancelledAt          DateTime?                               // set when user cancels
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([stripeSubscriptionId])  // webhook lookups hit this constantly
 }
 
 // ─────────────────────────────────────────────────────────────────

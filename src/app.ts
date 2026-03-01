@@ -6,38 +6,33 @@ import helmet from "helmet";
 import swaggerUi from "swagger-ui-express";
 import { swaggerSpec } from "./config/swagger";
 import { errorHandler } from "./middlewares/error.middleware";
-import { globalLimiter } from "./middlewares/rateLimiter"; // ← now imported from rateLimiter.ts
+import { globalLimiter } from "./middlewares/rateLimiter";
 
 import authRoutes from "./modules/auth/auth.routes";
 import moodRoutes from "./modules/mood/mood.routes";
 import habitRoutes from "./modules/habits/habit.routes";
+import billingRoutes from "./modules/billing/billing.routes"; // ← NEW
 
 const app = express();
 
 // ─────────────────────────────────────────────────────────────────
 // GLOBAL MIDDLEWARES
-// (order matters — these run for every single request)
 // ─────────────────────────────────────────────────────────────────
 app.use(express.json());
 
 app.use(
   cors({
-    // In production, replace * with your actual frontend origin:
-    // origin: "https://yourfrontend.com"
     origin: "*",
     methods: ["GET", "POST", "PATCH", "DELETE"],
     allowedHeaders: ["Content-Type", "Authorization"],
   }),
 );
 
-app.use(helmet()); // Sets security headers (X-Frame-Options, CSP, etc.)
-
-// Global rate limiter — 100 req / 15 min per IP across ALL routes.
-// Auth-specific routes have additional tighter limiters applied directly in auth.routes.ts.
+app.use(helmet());
 app.use(globalLimiter);
 
 // ─────────────────────────────────────────────────────────────────
-// SWAGGER API DOCUMENTATION
+// SWAGGER
 // ─────────────────────────────────────────────────────────────────
 app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
 
@@ -58,6 +53,7 @@ app.use("/api/auth", authRoutes);
 app.use("/api/mood", moodRoutes);
 app.use("/api/habits", habitRoutes);
 app.use("/api/ai", require("./modules/ai/ai.routes").default);
+app.use("/api/billing", billingRoutes); // ← NEW
 
 // ─────────────────────────────────────────────────────────────────
 // GLOBAL ERROR HANDLER — must always be the LAST middleware

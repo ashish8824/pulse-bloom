@@ -1,5 +1,15 @@
+// src/modules/habits/habit.routes.ts
+//
+// ─────────────────────────────────────────────────────────────────
+// CHANGE FROM ORIGINAL:
+//   1. Import checkPlanLimit from planLimiter
+//   2. Add checkPlanLimit("habit_create") to POST / only
+//      All other routes are completely unchanged.
+// ─────────────────────────────────────────────────────────────────
+
 import { Router } from "express";
 import { protect } from "../../middlewares/auth.middleware";
+import { checkPlanLimit } from "../../middlewares/planLimiter"; // ← NEW
 import {
   createHabitController,
   getHabitsController,
@@ -265,6 +275,7 @@ const router = Router();
  *     description: >
  *       Creates a habit with optional category, color, icon, targetPerWeek, and reminder.
  *       Duplicate habits (same title + frequency, case-insensitive) are rejected.
+ *       Free plan users are limited to 3 active habits — returns 403 when limit is reached.
  *     tags: [Habits]
  *     security:
  *       - bearerAuth: []
@@ -285,8 +296,16 @@ const router = Router();
  *         description: Validation error or duplicate
  *       401:
  *         description: Unauthorized
+ *       403:
+ *         description: Plan limit reached — free plan allows max 3 active habits
  */
-router.post("/", protect, createHabitController);
+// ↓ checkPlanLimit("habit_create") counts active habits → 403 + upgrade prompt if at limit
+router.post(
+  "/",
+  protect,
+  checkPlanLimit("habit_create"),
+  createHabitController,
+);
 
 /**
  * @swagger

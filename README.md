@@ -16,6 +16,7 @@ PulseBloom transforms simple daily logs into **actionable behavioral intelligenc
 
 Instead of basic CRUD tracking, it provides:
 
+- 🔐 Production-Grade Auth — Dual-token JWT, OTP email verification, refresh token rotation
 - 📊 Advanced Mood Analytics
 - 📈 Weekly Trend Analysis
 - 📉 Rolling 7-Day Moving Averages
@@ -26,11 +27,11 @@ Instead of basic CRUD tracking, it provides:
 - 🔍 Day-of-Week + Time-of-Day Behavioural Patterns
 - 🧘 Full Habit Tracking Engine with Streak System
 - 📅 Habit Heatmaps, Monthly Summaries & Consistency Scoring
-- 🔐 Secure JWT-based APIs
 - 🗄 Hybrid Database Architecture (PostgreSQL + MongoDB)
 - 📘 Fully documented OpenAPI (Swagger)
 - ⏰ Automated Habit Reminder Emails (node-cron + Gmail SMTP)
-- 🤖 AI-powered Behavioural Insights (GPT-4o-mini)
+- 🤖 AI-powered Behavioural Insights (Groq)
+- 💳 Subscription Billing — Razorpay integration with plan gating (Free / Pro / Enterprise)
 
 This is not a tutorial backend.
 This is a **SaaS-ready behavioral analytics engine**.
@@ -69,11 +70,20 @@ pulsebloom-backend/
 │   ├── modules/                         # Feature-based modules (Clean Architecture)
 │   │   │
 │   │   ├── auth/                        # ✅ Authentication Module
-│   │   │   ├── auth.controller.ts
-│   │   │   ├── auth.service.ts
-│   │   │   ├── auth.repository.ts
-│   │   │   ├── auth.routes.ts
-│   │   │   └── auth.validation.ts
+│   │   │   ├── auth.controller.ts       # HTTP layer — all 9 auth endpoints
+│   │   │   ├── auth.service.ts          # Business logic:
+│   │   │   │                            #   • register (creates user, sends OTP)
+│   │   │   │                            #   • verifyEmail (validates OTP, issues tokens)
+│   │   │   │                            #   • resendVerification (rate-limited OTP resend)
+│   │   │   │                            #   • login (validates credentials, issues tokens)
+│   │   │   │                            #   • refreshToken (rotation + reuse detection)
+│   │   │   │                            #   • logout (revokes refresh token)
+│   │   │   │                            #   • getProfile
+│   │   │   │                            #   • forgotPassword (sends reset link)
+│   │   │   │                            #   • resetPassword (validates token, revokes sessions)
+│   │   │   ├── auth.repository.ts       # DB layer — User + RefreshToken + OTP queries (Prisma)
+│   │   │   ├── auth.routes.ts           # All 9 routes with Swagger JSDoc + tiered rate limiting
+│   │   │   └── auth.validation.ts       # Zod schemas — register, login, verify, reset, etc.
 │   │   │
 │   │   ├── mood/                        # ✅ Mood Tracking + Analytics Module
 │   │   │   ├── mood.controller.ts       # HTTP layer — all 13 mood endpoints
@@ -126,6 +136,16 @@ pulsebloom-backend/
 │   │   │   ├── ai.prompt.ts
 │   │   │   └── ai.routes.ts
 │   │   │
+│   │   ├── billing/                     # ✅ Razorpay Billing Module
+│   │   │   ├── billing.controller.ts    # HTTP layer — 5 billing endpoints
+│   │   │   ├── billing.service.ts       # Business logic:
+│   │   │   │                            #   • createOrder (Razorpay order creation)
+│   │   │   │                            #   • verifyPayment (HMAC-SHA256 verification)
+│   │   │   │                            #   • handleWebhook (subscription lifecycle)
+│   │   │   │                            #   • getBillingStatus (plan + renewal info)
+│   │   │   │                            #   • cancelSubscription
+│   │   │   └── billing.routes.ts        # All 5 routes with full Swagger JSDoc
+│   │   │
 │   │   ├── community/                   # 🔮 Upcoming
 │   │   └── challenges/                  # 🔮 Upcoming
 │   │
@@ -135,15 +155,16 @@ pulsebloom-backend/
 │   ├── middlewares/
 │   │   ├── auth.middleware.ts           # JWT verification → attaches req.userId
 │   │   ├── error.middleware.ts          # Global error handler (Zod + App + unknown)
-│   │   └── rateLimiter.ts              # express-rate-limit (100 req / 15 min)
+│   │   ├── rateLimiter.ts               # Tiered rate limiting (global + auth-specific)
+│   │   └── planLimiter.ts               # ✅ Plan enforcement middleware (checkPlanLimit)
 │   │
 │   ├── websocket/                       # 🔮 Upcoming — Socket.io real-time layer
 │   │
 │   ├── utils/
-│   │   ├── jwt.ts
-│   │   ├── date.utils.ts
-│   │   ├── logger.ts
-│   │   ├── mailer.ts
+│   │   ├── jwt.ts                       # generateAccessToken, generateRefreshToken, verifyToken
+│   │   ├── date.utils.ts                # normalizeDailyDate, normalizeWeeklyDate
+│   │   ├── logger.ts                    # Structured timestamp logger
+│   │   ├── mailer.ts                    # Nodemailer Gmail SMTP — OTP, reset, reminder emails
 │   │   └── helpers.ts
 │   │
 │   ├── types/
@@ -173,9 +194,7 @@ pulsebloom-backend/
 
 # 🔐 Authentication
 
-PulseBloom uses a **dual-token JWT authentication system** with email verification.
-
----
+PulseBloom uses a **dual-token JWT authentication system** with mandatory email verification via OTP.
 
 ## Auth Flow Overview
 
@@ -184,22 +203,20 @@ Register → OTP Email → Verify Email → Login → Access Token (15m) + Refre
 ```
 
 - **Access Token** — short-lived JWT (15 min), sent in `Authorization: Bearer <token>` header
-- **Refresh Token** — long-lived opaque token (7 days), stored in DB, used to rotate both tokens silently
+- **Refresh Token** — long-lived opaque token (7 days), stored hashed in DB, used to rotate both tokens silently
 
----
-
-## API Reference
+## Auth API Reference
 
 | Method | Endpoint                        | Auth | Rate Limit | Description                      |
 | ------ | ------------------------------- | ---- | ---------- | -------------------------------- |
-| `POST` | `/api/auth/register`            | ❌   | 10/15min   | Create account, sends OTP email  |
+| `POST` | `/api/auth/register`            | ❌   | 10/15 min  | Create account, sends OTP email  |
 | `POST` | `/api/auth/verify-email`        | ❌   | —          | Confirm OTP, issues tokens       |
-| `POST` | `/api/auth/resend-verification` | ❌   | 3/15min    | Re-send OTP email                |
-| `POST` | `/api/auth/login`               | ❌   | 10/15min   | Login, issues tokens             |
+| `POST` | `/api/auth/resend-verification` | ❌   | 3/15 min   | Re-send OTP email                |
+| `POST` | `/api/auth/login`               | ❌   | 10/15 min  | Login, issues tokens             |
 | `POST` | `/api/auth/refresh-token`       | ❌   | —          | Rotate access + refresh tokens   |
 | `POST` | `/api/auth/logout`              | ✅   | —          | Revoke current session           |
 | `GET`  | `/api/auth/me`                  | ✅   | —          | Get authenticated user profile   |
-| `POST` | `/api/auth/forgot-password`     | ❌   | 3/15min    | Send password reset email        |
+| `POST` | `/api/auth/forgot-password`     | ❌   | 3/15 min   | Send password reset email        |
 | `POST` | `/api/auth/reset-password`      | ❌   | —          | Set new password via reset token |
 
 ---
@@ -251,7 +268,7 @@ POST /api/auth/verify-email
 
 A 6-digit OTP is sent to the registered email. It expires in **15 minutes** and is single-use.
 
-**Response `200`** — first time tokens are issued:
+**Response `200`** — tokens are issued for the first time:
 
 ```json
 {
@@ -311,9 +328,11 @@ POST /api/auth/refresh-token
 { "refreshToken": "a1b2c3d4...64hexchars" }
 ```
 
-The old refresh token is **immediately revoked**. The client must store the new refresh token returned in the response. Returns the same shape as login.
+The old refresh token is **immediately revoked**. The client must store the new refresh token returned in the response.
 
 **Security:** If a revoked token is reused (stolen token attack), all sessions for that user are immediately terminated.
+
+Returns the same shape as login.
 
 ---
 
@@ -342,7 +361,7 @@ POST /api/auth/forgot-password
 { "email": "ashish@example.com" }
 ```
 
-Always returns `200` regardless of whether the email is registered (prevents user enumeration). A reset link valid for **1 hour** is sent if the email exists.
+Always returns `200` regardless of whether the email is registered — prevents user enumeration. A reset link valid for **1 hour** is sent if the email exists.
 
 ---
 
@@ -360,7 +379,7 @@ POST /api/auth/reset-password
 }
 ```
 
-Validates the token, saves the new password, and **revokes all refresh tokens** (forces re-login on all devices).
+Validates the token, saves the new password, and **revokes all refresh tokens** — forces re-login on all devices.
 
 ---
 
@@ -402,6 +421,8 @@ All protected routes require:
 ```
 Authorization: Bearer <accessToken>
 ```
+
+---
 
 # 📊 Mood Module
 
@@ -545,9 +566,11 @@ GET /api/mood?startDate=2026-01-01&endDate=2026-01-31
 
 `endDate` is end-of-day inclusive — all entries up to `23:59:59.999` on that date are included.
 
+> **Plan limit:** Free plan users are restricted to the last 30 days of mood history. If `startDate` is older than 30 days, it is silently clamped and a `planLimitApplied` flag is included in the response so the frontend can show an upgrade banner.
+
 ```json
 {
-  "data": [ { "id": "uuid", "moodScore": 4, "emoji": "😊", ... } ],
+  "data": [{ "id": "uuid", "moodScore": 4, "emoji": "😊" }],
   "pagination": {
     "total": 87,
     "page": 1,
@@ -585,9 +608,7 @@ GET /api/mood/analytics?startDate=2026-01-01&endDate=2026-01-31
 GET /api/mood/streak
 ```
 
-Returns the current consecutive-day logging streak.
-
-**Algorithm:** The streak anchor is today (or yesterday, as a grace period). If you haven't logged yet today but logged yesterday, the streak stays active — you won't lose a 30-day streak at 7am simply for not having logged yet.
+**Algorithm:** The streak anchor is today (or yesterday as a grace period). If you haven't logged yet today but logged yesterday, the streak stays active — you won't lose a 30-day streak at 7am for not having logged yet.
 
 ```json
 {
@@ -651,7 +672,7 @@ Defaults to the current month if `month` is not provided.
 }
 ```
 
-`averageScore: null` means no entry was logged on that day. Used by calendar UI components to render coloured day cells.
+`averageScore: null` means no entry was logged on that day.
 
 ---
 
@@ -670,7 +691,6 @@ Analyses mood entries across two behavioural dimensions. Requires at least 5 ent
   "dayOfWeekPattern": {
     "data": [
       { "day": "Monday", "averageMood": 2.1, "entries": 14 },
-      { "day": "Tuesday", "averageMood": 3.9, "entries": 13 },
       { "day": "Wednesday", "averageMood": 4.1, "entries": 15 }
     ],
     "bestDay": "Wednesday",
@@ -696,9 +716,7 @@ Analyses mood entries across two behavioural dimensions. Requires at least 5 ent
 }
 ```
 
-**Day-of-week pattern** reveals which weekday has your best/worst average mood and where you log most consistently.
-
-**Time-of-day pattern** buckets entries into Morning / Afternoon / Evening / Night and shows when you feel best.
+**Day-of-week pattern** reveals which weekday has your best/worst average mood. **Time-of-day pattern** buckets entries into Morning / Afternoon / Evening / Night.
 
 ---
 
@@ -708,14 +726,13 @@ Analyses mood entries across two behavioural dimensions. Requires at least 5 ent
 GET /api/mood/trends/weekly
 ```
 
-Groups mood entries by ISO 8601 week (weeks start Monday, week 1 = week containing the first Thursday of the year). Returns weeks in chronological order.
+Groups mood entries by ISO 8601 week (weeks start Monday). Returns weeks in chronological order.
 
 ```json
 {
   "weeklyTrends": [
     { "week": "2026-W05", "averageMood": 3.6, "entries": 5 },
-    { "week": "2026-W06", "averageMood": 4.1, "entries": 7 },
-    { "week": "2026-W07", "averageMood": 2.9, "entries": 4 }
+    { "week": "2026-W06", "averageMood": 4.1, "entries": 7 }
   ]
 }
 ```
@@ -728,14 +745,11 @@ Groups mood entries by ISO 8601 week (weeks start Monday, week 1 = week containi
 GET /api/mood/trends/rolling
 ```
 
-For each calendar date with an entry, calculates the average mood score across the 7-day window ending on that date. Multiple entries on the same day are averaged before the window calculation.
-
 ```json
 {
   "rollingAverage": [
     { "date": "2026-02-10", "averageMood": 3.57 },
-    { "date": "2026-02-11", "averageMood": 3.71 },
-    { "date": "2026-02-12", "averageMood": 3.86 }
+    { "date": "2026-02-11", "averageMood": 3.71 }
   ]
 }
 ```
@@ -748,7 +762,7 @@ For each calendar date with an entry, calculates the average mood score across t
 GET /api/mood/burnout-risk
 ```
 
-Calculates a composite burnout risk score from three signals. Requires at least 3 entries.
+Requires at least 3 entries.
 
 **Formula:**
 
@@ -756,13 +770,11 @@ Calculates a composite burnout risk score from three signals. Requires at least 
 riskScore = (lowMoodDays × 2) + (max(0, 3.0 − averageMood) × 3) + (volatility × 1.5)
 ```
 
-| Signal        | Weight | Description                                                                                                        |
-| ------------- | ------ | ------------------------------------------------------------------------------------------------------------------ |
-| `lowMoodDays` | × 2    | Days where moodScore ≤ 2                                                                                           |
-| `moodDeficit` | × 3    | How far the average falls below the neutral threshold 3.0 (clamped ≥ 0 so healthy averages don't reduce the score) |
-| `volatility`  | × 1.5  | Range between highest and lowest score                                                                             |
-
-**Risk Levels:**
+| Signal        | Weight | Description                                                                                  |
+| ------------- | ------ | -------------------------------------------------------------------------------------------- |
+| `lowMoodDays` | × 2    | Days where moodScore ≤ 2                                                                     |
+| `moodDeficit` | × 3    | How far the average falls below 3.0 (clamped ≥ 0 so healthy averages don't reduce the score) |
+| `volatility`  | × 1.5  | Range between highest and lowest score                                                       |
 
 | Score | Level    |
 | ----- | -------- |
@@ -816,11 +828,7 @@ model MoodEntry {
 }
 ```
 
-**Indexes on JournalEntry:**
-
-- `{ userId: 1 }` — fast lookup by user
-- `{ moodEntryId: 1 }` (unique) — one journal per mood entry
-- `{ userId: 1, createdAt: -1 }` — future journal history + AI context queries
+**Indexes on JournalEntry:** `{ userId: 1 }`, `{ moodEntryId: 1 }` (unique), `{ userId: 1, createdAt: -1 }`
 
 ---
 
@@ -884,6 +892,8 @@ POST /api/habits
 | `reminderTime`  | `HH:MM`             | ❌       | 24-hour format — used by cron job for exact-minute matching              |
 | `reminderOn`    | boolean             | ❌       | Toggle reminder on/off without clearing `reminderTime`                   |
 
+> **Plan limit:** Free plan users are limited to **3 active habits**. Attempting to create a 4th habit returns a `403` with an upgrade prompt.
+
 ---
 
 ## Habit Completion
@@ -896,12 +906,7 @@ POST /api/habits/:id/complete
 { "note": "Felt really focused today" }
 ```
 
-**Period normalization:**
-
-- `daily` → normalized to midnight of today
-- `weekly` → normalized to Monday midnight of the current ISO week
-
-Completing at 9am and 11pm on the same day maps to the same date. The `@@unique([habitId, date])` constraint enforces this at the database level.
+**Period normalization:** `daily` → midnight of today, `weekly` → Monday midnight of the current ISO week. Completing at 9am and 11pm on the same day maps to the same date. The `@@unique([habitId, date])` constraint enforces this at the database level.
 
 **Response includes streak milestone detection:**
 
@@ -1007,7 +1012,7 @@ PATCH /api/habits/reorder
 }
 ```
 
-All `sortOrder` updates run in a **single atomic database transaction**. If any update fails, all changes roll back — the list can never end up partially reordered.
+All `sortOrder` updates run in a **single atomic database transaction**. If any update fails, all changes roll back.
 
 ---
 
@@ -1091,7 +1096,7 @@ EMAIL_FROM="PulseBloom 🌸 <yourgmail@gmail.com>"
 
 # 🤖 AI Insights Module
 
-PulseBloom uses **GPT-4o-mini** to cross-correlate mood scores and habit completion data, generating personalised behavioral insights.
+PulseBloom uses **Groq** to cross-correlate mood scores and habit completion data, generating personalised behavioral insights.
 
 ## Endpoint
 
@@ -1101,6 +1106,8 @@ GET /api/ai/insights?refresh=true
 ```
 
 `?refresh=true` bypasses the cache and forces regeneration.
+
+> **Plan limit:** AI Insights are available on **Pro and Enterprise plans only**. Free plan users receive a `403` with an upgrade prompt.
 
 ## How It Works
 
@@ -1112,14 +1119,14 @@ Fetch last 90 days of mood entries + habit logs (parallel DB queries)
 Compute SHA-256 hash of raw data snapshot
     ↓
 Check AiInsight cache: current hash === cached hash?
-    YES → return cached insights instantly (zero OpenAI cost)
+    YES → return cached insights instantly (zero Groq API cost)
     NO  → continue
     ↓
 Pre-process into weekly behavioral summaries (ai.prompt.ts)
     ↓
 Build system + user prompts
     ↓
-Call OpenAI gpt-4o-mini (temperature: 0.4, max_tokens: 1200)
+Call Groq API (temperature: 0.4, max_tokens: 1200)
     ↓
 Parse + validate JSON response
     ↓
@@ -1164,7 +1171,7 @@ Return 3–6 structured insights
 
 ## Caching Strategy
 
-Results are cached in PostgreSQL (`AiInsight` table) using a **SHA-256 data hash**. The OpenAI API is only called when the user's behavioral data has actually changed — not on a fixed TTL. This means zero API cost on repeated requests with unchanged data.
+Results are cached in PostgreSQL (`AiInsight` table) using a **SHA-256 data hash**. The Groq API is only called when the user's behavioral data has actually changed — not on a fixed TTL. Zero API cost on repeated requests with unchanged data.
 
 ## Minimum Data Requirements
 
@@ -1174,7 +1181,238 @@ Results are cached in PostgreSQL (`AiInsight` table) using a **SHA-256 data hash
 ## Environment Variable Required
 
 ```env
-OPENAI_API_KEY=sk-...your-key-here...
+GROQ_API_KEY=gsk_...your-key-here...
+```
+
+---
+
+# 💳 Billing Module
+
+PulseBloom uses **Razorpay** for subscription billing. The billing module enforces plan-based feature gating across the entire API via the `planLimiter` middleware.
+
+## Plan Limits
+
+| Tier       | Habits    | Mood History | AI Insights | Team Features |
+| ---------- | --------- | ------------ | ----------- | ------------- |
+| Free       | 3 max     | 30 days      | ❌          | ❌            |
+| Pro        | Unlimited | Full history | ✅          | ❌            |
+| Enterprise | Unlimited | Full history | ✅          | ✅            |
+
+## 🗺 Billing API Reference
+
+| Method   | Endpoint                    | Auth | Description                                        |
+| -------- | --------------------------- | ---- | -------------------------------------------------- |
+| `POST`   | `/api/billing/order`        | ✅   | Create Razorpay order — Step 1 of checkout         |
+| `POST`   | `/api/billing/verify`       | ✅   | Verify payment + upgrade plan — Step 2             |
+| `POST`   | `/api/billing/webhook`      | ❌   | Razorpay webhook receiver (subscription lifecycle) |
+| `GET`    | `/api/billing/status`       | ✅   | Current plan, renewal date, manage link            |
+| `DELETE` | `/api/billing/subscription` | ✅   | Cancel subscription at end of billing period       |
+
+## Payment Flow
+
+```
+Frontend                    Your Backend              Razorpay
+─────────                   ────────────              ────────
+Click "Upgrade to Pro"
+  │
+  ├─ POST /api/billing/order ──────────────────────────────────→
+  │                           createOrder()
+  │                           razorpay.orders.create()  ───────→
+  │                                                     order_id ←─
+  │  ←────────── { orderId, amount, currency, keyId }
+  │
+  ├─ new Razorpay({ key, order_id }).open()
+  │                                               ←── Popup shown
+  │  User pays with card / UPI / netbanking
+  │                                               ──── Payment ──→
+  │  handler({ payment_id, order_id, signature }) ←─────────────
+  │
+  ├─ POST /api/billing/verify ─────────────────────────────────→
+  │                           HMAC-SHA256 signature verify ✅
+  │                           razorpay.payments.fetch() ────────→
+  │                                                  status=captured ←─
+  │                           prisma: user.plan = "pro"
+  │  ←────────── { success: true, plan: "pro" }
+  │
+  Show success UI ✅
+```
+
+## Create Order (Step 1)
+
+```
+POST /api/billing/order
+Authorization: Bearer <accessToken>
+```
+
+```json
+{ "plan": "pro" }
+```
+
+**Response:**
+
+```json
+{
+  "orderId": "order_NaVxyz123",
+  "amount": 99900,
+  "currency": "INR",
+  "keyId": "rzp_test_...",
+  "plan": "pro"
+}
+```
+
+Pass these to the Razorpay checkout popup on the frontend. See `billing.routes.ts` for the complete frontend integration snippet.
+
+---
+
+## Verify Payment (Step 2)
+
+```
+POST /api/billing/verify
+Authorization: Bearer <accessToken>
+```
+
+```json
+{
+  "razorpayOrderId": "order_NaVxyz123",
+  "razorpayPaymentId": "pay_NaVabc456",
+  "razorpaySignature": "a9f3e2...",
+  "plan": "pro"
+}
+```
+
+Verifies the `HMAC-SHA256` signature — the critical security step that prevents fake payment IDs from being submitted to get a free upgrade.
+
+**Response:**
+
+```json
+{
+  "success": true,
+  "plan": "pro",
+  "message": "🎉 Welcome to PulseBloom Pro! Your plan has been upgraded."
+}
+```
+
+---
+
+## Billing Status
+
+```
+GET /api/billing/status
+Authorization: Bearer <accessToken>
+```
+
+```json
+{
+  "currentPlan": "pro",
+  "subscription": {
+    "status": "active",
+    "currentPeriodEnd": "2026-04-01T00:00:00.000Z",
+    "cancelledAt": null
+  },
+  "manageUrl": "http://localhost:3000/billing/manage"
+}
+```
+
+---
+
+## Cancel Subscription
+
+```
+DELETE /api/billing/subscription
+Authorization: Bearer <accessToken>
+```
+
+Cancels the Razorpay subscription. Access is retained until `currentPeriodEnd`, then the plan reverts to `free`.
+
+```json
+{
+  "message": "Subscription cancelled. You will retain access until the end of your current billing period."
+}
+```
+
+---
+
+## Webhook Events Handled
+
+| Event                    | Action                                           |
+| ------------------------ | ------------------------------------------------ |
+| `subscription.charged`   | Renewal confirmed — refreshes `currentPeriodEnd` |
+| `subscription.cancelled` | Reverts user plan to `free`                      |
+| `payment.failed`         | Marks subscription as `past_due`                 |
+
+Webhook signature is verified via `HMAC-SHA256` using `RAZORPAY_WEBHOOK_SECRET`. Always returns `200` to prevent Razorpay retries on processing errors.
+
+---
+
+## Plan Enforcement Middleware
+
+`checkPlanLimit(resource)` is applied at the route level — before the controller runs.
+
+| Resource        | Enforcement                                                  |
+| --------------- | ------------------------------------------------------------ |
+| `habit_create`  | Hard block (403) if free user has ≥ 3 active habits          |
+| `mood_history`  | Clamps `startDate` to last 30 days for free users (no block) |
+| `ai_insights`   | Hard block (403) for free users                              |
+| `team_features` | Hard block (403) for non-enterprise users                    |
+
+Upgrade prompt response shape:
+
+```json
+{
+  "error": "plan_limit_reached",
+  "message": "Free plan is limited to 3 active habits.",
+  "currentPlan": "free",
+  "requiredPlan": "pro",
+  "upgradeUrl": "https://yourapp.com/billing/upgrade?from=free&to=pro",
+  "limit": 3,
+  "current": 3
+}
+```
+
+---
+
+## Billing Database Schema
+
+```prisma
+enum Plan {
+  free
+  pro
+  enterprise
+}
+
+enum SubscriptionStatus {
+  active
+  cancelled
+  past_due
+  trialing
+  incomplete
+}
+
+model Subscription {
+  id                   String             @id @default(uuid())
+  userId               String             @unique
+  plan                 Plan
+  status               SubscriptionStatus @default(active)
+  stripeSubscriptionId String?            @unique  // stores Razorpay subscription ID
+  currentPeriodStart   DateTime?
+  currentPeriodEnd     DateTime?
+  cancelledAt          DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([stripeSubscriptionId])
+}
+```
+
+`User` model additions:
+
+```prisma
+plan                 Plan    @default(free)
+stripeCustomerId     String? @unique   // unused with Razorpay — kept for future gateway flexibility
+stripeSubscriptionId String? @unique   // stores Razorpay subscription ID
 ```
 
 ---
@@ -1185,9 +1423,9 @@ OPENAI_API_KEY=sk-...your-key-here...
 
 Managed via **Prisma ORM** with a `pg` connection pool adapter.
 
-Stores: Users, MoodEntry, Habit, HabitLog, AiInsight cache.
+Stores: Users, RefreshTokens, MoodEntry, Habit, HabitLog, AiInsight cache, Subscription.
 
-Used for: Filtering, pagination, sorting, analytics calculations, streak queries, transactional reordering, cron job reminder queries.
+Used for: Filtering, pagination, sorting, analytics calculations, streak queries, transactional reordering, cron job reminder queries, O(1) refresh token lookup via `@@index([token])`, plan enforcement reads.
 
 ## MongoDB (Unstructured Data)
 
@@ -1204,8 +1442,8 @@ Optimised for: Flexible schemas, text-heavy storage, future AI model integration
 - `bcrypt` password hashing (salt rounds: 12)
 - Strong password policy enforced at validation layer (uppercase, lowercase, number, special char)
 - Dual-token JWT system — short-lived access tokens (15m) + long-lived refresh tokens (7d)
-- Refresh token rotation — every `/refresh-token` call revokes the old token and issues a new one
-- Refresh token reuse detection — using a revoked token terminates all sessions for that user
+- Refresh token rotation — every `/refresh-token` call immediately revokes the old token and issues a new one
+- Refresh token reuse detection — using a revoked token terminates **all sessions** for that user
 - Email verification required before login — unverified accounts cannot access the API
 - OTP generated with `crypto.randomInt` (cryptographically secure, not `Math.random`)
 - Password reset tokens generated with `crypto.randomBytes(32)` (256-bit randomness)
@@ -1213,20 +1451,23 @@ Optimised for: Flexible schemas, text-heavy storage, future AI model integration
 - All forgot-password and resend-verification responses are identical (prevents user enumeration)
 - Route-level `protect` middleware on all user endpoints — validates access token, attaches `req.userId`
 - `TokenExpiredError` distinguished from `JsonWebTokenError` — client knows to refresh vs re-login
-- Global centralised error handler — ZodError → 400 with field-level detail, AppErrors → correct HTTP status, unknown errors → 500 (never leaks internals)
+- Global centralised error handler — ZodError → 400 with field-level detail, AppErrors → correct HTTP status, unknown errors → 500 (never leaks stack traces)
 - Tiered rate limiting — global (100 req/15min), auth login/register (10 req/15min), OTP resend + forgot-password (3 req/15min)
 - `skipSuccessfulRequests: true` on login limiter — only failed attempts count toward the limit
 - `helmet` security headers
 - CORS enabled
 - Environment variable validation on startup — server refuses to start with missing required vars
-- Atomic database transactions for multi-row operations (habit reorder)
+- Atomic database transactions for multi-row operations (habit reorder, plan upgrades)
 - Soft-delete pattern preserves all historical behavioral data
 - DB-level unique constraints as a safety net against race conditions
-- `@@index` on all hot query columns for performance — including `@@index([token])` for O(1) refresh token lookup
+- `@@index([token])` on RefreshToken for O(1) lookup during rotation
 - Ownership checks (`assertMoodOwnership`) before every write operation
 - Cron job error isolation — one email failure never blocks other users
 - MongoDB cleanup runs before Postgres delete — prevents orphaned documents
 - Gmail SMTP with TLS for secure email delivery
+- Razorpay `HMAC-SHA256` signature verification on every payment — prevents fake payment ID attacks
+- Razorpay webhook signature verification — prevents spoofed webhook events
+- Plan read from DB (not JWT) on every request — plan upgrades take effect immediately
 
 ---
 
@@ -1242,7 +1483,7 @@ Features:
 
 - Bearer token authentication
 - All request/response schemas documented with examples
-- Organised by feature module (Auth / Mood / Habits / AI Insights)
+- Organised by feature module (Auth / Mood / Habits / AI Insights / Billing)
 - Real-time API testing in-browser
 
 ---
@@ -1272,17 +1513,27 @@ DATABASE_URL=postgresql://postgres:password@localhost:5432/pulsebloom
 MONGO_URI=mongodb://localhost:27017/pulsebloom
 JWT_SECRET=your_super_secret_key_min_32_chars
 
-# Gmail SMTP — for verification OTP + password reset + habit reminder emails
+# Gmail SMTP — for OTP verification + password reset + habit reminder emails
 SMTP_USER=yourgmail@gmail.com
 SMTP_PASS=your_16_char_app_password
 EMAIL_FROM="PulseBloom 🌸 <yourgmail@gmail.com>"
 
-# Frontend URL — used in password reset email link
+# Frontend URL — used in password reset email link and billing redirects
 # Development: http://localhost:3000  |  Production: https://yourapp.com
 APP_URL=http://localhost:3000
 
-# GROQ — for AI insights
-GROQ_API_KEY=sk-...your-key-here...
+# Groq — for AI insights
+GROQ_API_KEY=gsk_...your-key-here...
+
+# ─────────────────────────────────────────────────────────────────
+# Razorpay — for subscription billing
+# Get from: https://dashboard.razorpay.com → Account & Settings → API Keys
+# ─────────────────────────────────────────────────────────────────
+RAZORPAY_KEY_ID=rzp_test_...
+RAZORPAY_KEY_SECRET=your_razorpay_secret
+RAZORPAY_WEBHOOK_SECRET=your_webhook_secret
+RAZORPAY_PLAN_PRO=plan_...
+RAZORPAY_PLAN_ENTERPRISE=plan_...
 ```
 
 > **Gmail App Password Setup:**
@@ -1290,6 +1541,14 @@ GROQ_API_KEY=sk-...your-key-here...
 > 1. Go to [myaccount.google.com/security](https://myaccount.google.com/security) → enable 2-Step Verification
 > 2. Go to [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) → create an App Password named `PulseBloom`
 > 3. Copy the 16-character password (remove spaces) → paste into `SMTP_PASS`
+
+> **Razorpay Setup:**
+>
+> 1. Sign up at [razorpay.com](https://razorpay.com) — KYC approved instantly for Indian accounts
+> 2. Dashboard → Account & Settings → API Keys → Generate Key → copy `key_id` and `key_secret`
+> 3. Dashboard → Subscriptions → Plans → Create plans for Pro (₹999/mo) and Enterprise (₹2999/mo) → copy Plan IDs
+> 4. Dashboard → Account & Settings → Webhooks → Add webhook URL → copy signing secret
+> 5. For local webhook testing: `ngrok http 5000` → use the ngrok URL as webhook endpoint
 
 ## 4. Setup PostgreSQL
 
@@ -1329,71 +1588,203 @@ Server running on port 5000
 
 # 📦 Feature Status
 
-| Feature                                    | Status      |
-| ------------------------------------------ | ----------- |
-| Authentication (Register/Login)            | ✅ Complete |
-| Email Verification (OTP flow)              | ✅ Complete |
-| Refresh Token + Token Rotation             | ✅ Complete |
-| Forgot Password / Reset Password           | ✅ Complete |
-| GET /me — User Profile Endpoint            | ✅ Complete |
-| Tiered Auth Rate Limiting                  | ✅ Complete |
-| Protected Routes (JWT middleware)          | ✅ Complete |
-| Mood CRUD (Create, Read, Update, Delete)   | ✅ Complete |
-| Mood Pagination + Date Filtering           | ✅ Complete |
-| Mood Entry Hydration (journal + tags)      | ✅ Complete |
-| Mood Journal Cross-store Sync (PG + Mongo) | ✅ Complete |
-| Mood Context Tags                          | ✅ Complete |
-| Mood Analytics Engine                      | ✅ Complete |
-| Mood Logging Streak                        | ✅ Complete |
-| Mood Heatmap (GitHub-style)                | ✅ Complete |
-| Monthly Mood Calendar Summary              | ✅ Complete |
-| Day-of-Week + Time-of-Day Pattern Insights | ✅ Complete |
-| Weekly Trend Analysis (ISO 8601)           | ✅ Complete |
-| Rolling 7-Day Average                      | ✅ Complete |
-| Burnout Risk Scoring                       | ✅ Complete |
-| Swagger Documentation                      | ✅ Complete |
-| Hybrid DB Architecture (PG + Mongo)        | ✅ Complete |
-| Habit CRUD (Create, Read, Update)          | ✅ Complete |
-| Habit Soft Delete + Restore                | ✅ Complete |
-| Habit Duplicate Prevention                 | ✅ Complete |
-| Habit Categories, Color, Icon              | ✅ Complete |
-| Habit Reordering (Drag & Drop, Atomic TX)  | ✅ Complete |
-| Habit Completion + Undo                    | ✅ Complete |
-| Habit Streak Engine (DST-safe)             | ✅ Complete |
-| Streak Milestone Detection                 | ✅ Complete |
-| Habit Analytics + Consistency Score        | ✅ Complete |
-| Best Day of Week Insight                   | ✅ Complete |
-| Monthly Habit Calendar Summary             | ✅ Complete |
-| GitHub-style Habit Heatmap                 | ✅ Complete |
-| Paginated Habit Log History                | ✅ Complete |
-| Habit Reminder Settings                    | ✅ Complete |
-| targetPerWeek Goal Support                 | ✅ Complete |
-| Global Error Handler (Zod + App + Unknown) | ✅ Complete |
-| Reminder Cron Job (node-cron)              | ✅ Complete |
-| Structured Logger                          | ✅ Complete |
-| Gmail SMTP Email Delivery                  | ✅ Complete |
-| AI-powered Insights (GPT-4o-mini)          | ✅ Complete |
-| SHA-256 Hash-based AI Cache                | ✅ Complete |
-| Anonymous Community Posts                  | 🔮 Upcoming |
-| Challenge System                           | 🔮 Upcoming |
-| WebSocket Real-time Updates (Socket.io)    | 🔮 Upcoming |
-| Redis Caching                              | 🔮 Upcoming |
-| Docker Containerization                    | 🔮 Upcoming |
-| AWS Deployment                             | 🔮 Upcoming |
+## ✅ Completed
+
+| Feature                                      | Status      |
+| -------------------------------------------- | ----------- |
+| Authentication (Register / Login)            | ✅ Complete |
+| Email Verification (OTP flow)                | ✅ Complete |
+| Resend Verification OTP                      | ✅ Complete |
+| Refresh Token + Token Rotation               | ✅ Complete |
+| Refresh Token Reuse Detection                | ✅ Complete |
+| Forgot Password / Reset Password             | ✅ Complete |
+| GET /me — User Profile Endpoint              | ✅ Complete |
+| Tiered Auth Rate Limiting                    | ✅ Complete |
+| Protected Routes (JWT middleware)            | ✅ Complete |
+| Mood CRUD (Create, Read, Update, Delete)     | ✅ Complete |
+| Mood Pagination + Date Filtering             | ✅ Complete |
+| Mood Entry Hydration (journal + tags)        | ✅ Complete |
+| Mood Journal Cross-store Sync (PG + Mongo)   | ✅ Complete |
+| Mood Context Tags                            | ✅ Complete |
+| Mood Analytics Engine                        | ✅ Complete |
+| Mood Logging Streak                          | ✅ Complete |
+| Mood Heatmap (GitHub-style)                  | ✅ Complete |
+| Monthly Mood Calendar Summary                | ✅ Complete |
+| Day-of-Week + Time-of-Day Pattern Insights   | ✅ Complete |
+| Weekly Trend Analysis (ISO 8601)             | ✅ Complete |
+| Rolling 7-Day Average                        | ✅ Complete |
+| Burnout Risk Scoring                         | ✅ Complete |
+| Swagger Documentation                        | ✅ Complete |
+| Hybrid DB Architecture (PG + Mongo)          | ✅ Complete |
+| Habit CRUD (Create, Read, Update)            | ✅ Complete |
+| Habit Soft Delete + Restore                  | ✅ Complete |
+| Habit Duplicate Prevention                   | ✅ Complete |
+| Habit Categories, Color, Icon                | ✅ Complete |
+| Habit Reordering (Drag & Drop, Atomic TX)    | ✅ Complete |
+| Habit Completion + Undo                      | ✅ Complete |
+| Habit Streak Engine (DST-safe)               | ✅ Complete |
+| Streak Milestone Detection                   | ✅ Complete |
+| Habit Analytics + Consistency Score          | ✅ Complete |
+| Best Day of Week Insight                     | ✅ Complete |
+| Monthly Habit Calendar Summary               | ✅ Complete |
+| GitHub-style Habit Heatmap                   | ✅ Complete |
+| Paginated Habit Log History                  | ✅ Complete |
+| Habit Reminder Settings                      | ✅ Complete |
+| targetPerWeek Goal Support                   | ✅ Complete |
+| Global Error Handler (Zod + App + Unknown)   | ✅ Complete |
+| Reminder Cron Job (node-cron)                | ✅ Complete |
+| Structured Logger                            | ✅ Complete |
+| Gmail SMTP Email Delivery                    | ✅ Complete |
+| AI-powered Insights (Groq)                   | ✅ Complete |
+| SHA-256 Hash-based AI Cache                  | ✅ Complete |
+| Subscription Plans (Free / Pro / Enterprise) | ✅ Complete |
+| Usage Limits Middleware (planLimiter)        | ✅ Complete |
+| Razorpay Payment Integration                 | ✅ Complete |
+
+## 🔮 Upcoming — Build Order
+
+> Features are listed in the order they should be implemented. Each phase unlocks the next.
+
+| #   | Feature                                  | Phase             |
+| --- | ---------------------------------------- | ----------------- |
+| 4   | In-App Notification System               | 🔔 Engagement     |
+| 5   | Weekly Email Digest                      | 🔔 Engagement     |
+| 6   | Mood Check-in Reminders                  | 🔔 Engagement     |
+| 7   | Mood ↔ Habit Correlation Engine          | 📊 Analytics      |
+| 8   | Predictive Mood Forecast                 | 📊 Analytics      |
+| 9   | Personal Records & Milestones Timeline   | 📊 Analytics      |
+| 10  | Habit Correlation Matrix                 | 📊 Analytics      |
+| 11  | Achievement Badges                       | 🏆 Gamification   |
+| 12  | Challenge System                         | 🏆 Gamification   |
+| 13  | Anonymous Community Feed                 | 🏆 Gamification   |
+| 14  | Journal Sentiment Analysis               | 🤖 Enhanced AI    |
+| 15  | Smart Habit Suggestions                  | 🤖 Enhanced AI    |
+| 16  | Personalized AI Coach (Chat Interface)   | 🤖 Enhanced AI    |
+| 17  | Organizations + Members                  | 👥 Team           |
+| 18  | Team Mood Dashboard                      | 👥 Team           |
+| 19  | Manager Burnout Alerts                   | 👥 Team           |
+| 20  | Redis Caching Layer                      | 🔧 Infrastructure |
+| 21  | Account Deletion (GDPR Right to Erasure) | 🔧 Infrastructure |
+| 22  | Data Export (CSV / JSON)                 | 🔧 Infrastructure |
+| 23  | Audit Log                                | 🔧 Infrastructure |
+| 24  | WebSocket Real-time Updates (Socket.io)  | 🔧 Infrastructure |
+| 25  | API Key Management                       | 🔧 Infrastructure |
+| 26  | Webhook System                           | 🔧 Infrastructure |
+| 27  | Public Developer Portal                  | 🔧 Infrastructure |
+| 28  | Docker Containerization                  | 🚀 Deployment     |
+| 29  | AWS Deployment                           | 🚀 Deployment     |
 
 ---
 
 # 🔮 Upcoming Features
 
-**Redis Caching** — Analytics endpoints (`/analytics`, `/streak`, `/heatmap`) are read-heavy. Redis will cache results with a short TTL, invalidated on every `addMood()` or `completeHabit()` call, eliminating redundant recalculations at scale.
+## 🔔 Phase 2 — Engagement
 
-**Anonymous Community Posts** — Users can share habit milestones or mood reflections anonymously. Stored in MongoDB for flexible schema. Includes an upvote system.
+> Retention before advanced features. These three keep users coming back daily before you've built anything else.
 
-**Challenge System** — Time-boxed group challenges (e.g. "30-day meditation challenge") with shared leaderboards and progress tracking that links directly to the existing habit engine.
+**4. In-App Notification System** — Add a `Notification` model in PostgreSQL: `id`, `userId`, `type`, `title`, `message`, `isRead`, `createdAt`. Notification types: `STREAK_MILESTONE`, `BURNOUT_RISK_CHANGED`, `WEEKLY_SUMMARY`, `BADGE_EARNED`, `CHALLENGE_UPDATE`. Endpoints:
 
-**WebSocket Real-time Updates** — Streak milestones and habit completion events pushed to the frontend in real time via Socket.io, enabling live celebration animations without polling.
+- `GET /api/notifications?page=1&limit=20` — paginated, unread first
+- `PATCH /api/notifications/:id/read`
+- `PATCH /api/notifications/read-all`
+- `GET /api/notifications/unread-count` — lightweight count for badge display
 
-**Docker + AWS** — Full containerisation with Docker Compose (Node, PostgreSQL, MongoDB, Redis) and AWS ECS deployment with RDS and DocumentDB.
+This model feeds the WebSocket layer (Phase 7) directly — build the DB layer now, real-time delivery later.
+
+**5. Weekly Email Digest** — A Saturday 8am cron job (add alongside `reminder.cron.ts`) that iterates users with `weeklyDigestOn: true` and sends a branded HTML email: average mood this week, habits completed vs target, current streaks, burnout risk trend. Use `Promise.allSettled()` — same error isolation pattern as the habit reminder cron. Add `weeklyDigestOn: Boolean @default(true)` to the `User` model.
+
+**6. Mood Check-in Reminders** — Add `moodReminderTime: String?` and `moodReminderOn: Boolean @default(false)` to the `User` model. Add `@@index([moodReminderOn, moodReminderTime])` for cron performance. Extend `reminder.cron.ts` to process mood reminders in the same tick: query users whose `moodReminderTime` matches the current `HH:MM`, check if a `MoodEntry` exists for today, send nudge email if not.
+
+---
+
+## 📊 Phase 3 — Analytics
+
+> Pure computation on data you already have. No external dependencies, no new infrastructure.
+
+**7. Mood ↔ Habit Correlation Engine** — `GET /api/analytics/correlation`. For each active habit, compute: average mood on days the habit was completed vs days it was skipped. Return sorted by impact descending. Example output: `{ habitTitle: "Morning Meditation", completionDayAvg: 4.2, skipDayAvg: 2.8, lift: +1.4 }`. Deterministic — zero AI cost.
+
+**8. Predictive Mood Forecast** — `GET /api/mood/forecast?days=7`. Uses the rolling average + day-of-week pattern (both already computed) to project the next 7 days. Formula: `baseline (30-day avg) + day-of-week adjustment (from daily insights) + recent trend slope`. Returns `{ date, predictedScore, label }` per day. Entirely local — no external API.
+
+**9. Personal Records & Milestones Timeline** — Add a `Milestone` model: `id`, `userId`, `type`, `habitId?`, `value`, `achievedAt`. Types: `FIRST_MOOD_ENTRY`, `HABIT_STREAK_7/14/21/30/60/90/100`, `MOOD_STREAK_7/14/30`, `BEST_WEEK_MOOD`, `BURNOUT_RECOVERY`. Call `createMilestoneIfNew()` from inside `completeHabit()` and `addMood()` after each write. `GET /api/milestones` returns the full timeline.
+
+**10. Habit Correlation Matrix** — `GET /api/analytics/habit-matrix`. For each pair of active habits, compute the co-completion rate: percentage of days where both were completed when at least one was. Sort pairs by correlation descending. Powers habit stacking suggestions in the UI.
+
+---
+
+## 🏆 Phase 4 — Gamification
+
+> Add these once analytics are in place — badges and challenges reference streak and milestone data.
+
+**11. Achievement Badges** — Add a `Badge` model: `id`, `userId`, `type`, `earnedAt`. Check and award badges inside `completeHabit()` and `addMood()` (async, non-blocking). Badge types and unlock conditions:
+
+| Badge         | Unlock Condition                           |
+| ------------- | ------------------------------------------ |
+| First Step    | First mood entry logged                    |
+| Week One      | 7-day mood logging streak                  |
+| Iron Will     | 30-day habit streak                        |
+| Mindful Month | Mood logged every day for a calendar month |
+| Resilient     | Burnout risk dropped from High → Low       |
+| Centurion     | 100-day habit streak                       |
+
+`GET /api/badges` returns earned badges with dates and locked badges with progress percentages.
+
+**12. Challenge System** — `Challenge` model: `title`, `description`, `targetDays`, `habitId?`, `startDate`, `endDate`, `isPublic`, `createdBy`. `ChallengeParticipant` model: `challengeId`, `userId`, `joinedAt`, `completionsCount`. Endpoints: `POST /api/challenges`, `GET /api/challenges` (public list), `POST /api/challenges/:id/join`, `GET /api/challenges/:id/leaderboard`. Hook into `completeHabit()` to increment `completionsCount` when a completion contributes to an active challenge.
+
+**13. Anonymous Community Feed** — `CommunityPost` model in MongoDB: `type` (`MILESTONE | REFLECTION`), `content`, `upvotes`, `tags[]`, `createdAt`. User identity is never stored. `POST /api/community` (authenticated, but strips identity before save), `GET /api/community` (public), `POST /api/community/:id/upvote`.
+
+---
+
+## 🤖 Phase 5 — Enhanced AI
+
+> Build on the existing `ai.prompt.ts` infrastructure. The data pre-processing layer is already there.
+
+**14. Journal Sentiment Analysis** — After `JournalModel.create()` in `addMood()`, fire an async Groq call (don't await — non-blocking). Prompt: extract `sentimentScore` (-1.0 to 1.0) and up to 5 theme tags from the journal text, respond in JSON. Update the journal document with `sentimentScore` and `themes[]`. New endpoint: `GET /api/mood/sentiment/trends` — weekly average sentiment vs weekly mood score.
+
+**15. Smart Habit Suggestions** — `GET /api/ai/suggestions`. Feed the existing daily insights + current habits + burnout risk level into a Groq prompt. Return 3 habit suggestions with `title`, `frequency`, `category`, `rationale`, and `expectedMoodImpact`. Cache using the same SHA-256 hash strategy as AI insights — only regenerate when behavioral data changes.
+
+**16. Personalized AI Coach (Chat Interface)** — `POST /api/ai/chat` with body `{ message, conversationId? }`. Store conversation history in a new MongoDB model `AiConversation`: `userId`, `messages: [{ role, content, timestamp }]`. Inject the user's last 90-day behavioral summary into the system prompt on every call (same pre-processing as `ai.prompt.ts`). Include up to the last 10 messages for context. Gate behind Pro plan.
+
+---
+
+## 👥 Phase 6 — Team & Organization
+
+> Build after monetization is stable. Enterprise plan must exist before org features launch.
+
+**17. Organizations + Members** — `Organization` model: `id`, `name`, `ownerId`, `createdAt`. `OrgMember` model: `orgId`, `userId`, `role` (`OWNER | ADMIN | MEMBER`), `joinedAt`. Endpoints: `POST /api/orgs`, `POST /api/orgs/:id/invite` (sends invite email via existing mailer), `POST /api/orgs/join?token=...`, `DELETE /api/orgs/:id/members/:userId`. Add `requireOrgRole(role)` middleware for all org-scoped routes.
+
+**18. Team Mood Dashboard** — `GET /api/teams/:id/mood/overview`. Aggregate mood data across all org members: team average mood this week, percentage at High burnout risk, week-over-week trend. Data is anonymized by default — no individual names unless the member has opted in via a profile flag. Require a minimum of 3 members before returning any individual breakdowns. Gate behind Enterprise plan.
+
+**19. Manager Burnout Alerts** — Add a weekly Monday 9am cron job (alongside the existing reminder cron). For each org: run team burnout aggregation, compare to last week's snapshot stored in an `OrgMoodSnapshot` model. If High-risk member count increased by more than 20%, send a digest email to all org admins via the existing mailer.
+
+---
+
+## 🔧 Phase 7 — Infrastructure
+
+> These are ongoing — Redis and GDPR deletion can be added at any point. WebSockets and webhooks come last.
+
+**20. Redis Caching Layer** — `npm install ioredis`. Cache keys: `mood:analytics:{userId}`, `mood:streak:{userId}`, `mood:heatmap:{userId}:{days}`, `habit:streak:{habitId}`, `habit:heatmap:{habitId}:{days}`. TTL: 5 minutes for analytics and streaks, 1 hour for heatmaps. Invalidate in `addMood()`, `updateMood()`, `deleteMood()`, `completeHabit()`, `undoLastCompletion()`. Add `X-Cache: HIT | MISS` header to analytics responses for debugging.
+
+**21. Account Deletion (GDPR Right to Erasure)** — `DELETE /api/auth/account` (requires password confirmation in body). Flow: verify password → delete all MongoDB `JournalEntry` docs for `userId` → delete `User` row in Postgres (Prisma `onDelete: Cascade` handles `MoodEntry`, `Habit`, `HabitLog`, `AiInsight`) → revoke all refresh tokens. Send a 24-hour warning email first; add `scheduledDeletion: DateTime?` to `User` and process via a daily cron rather than immediately.
+
+**22. Data Export (CSV / JSON)** — `GET /api/export/mood?format=csv|json` and `GET /api/export/habits?format=csv|json`. For CSV, use a streaming response with `Content-Disposition: attachment` header. Rate-limit to 3 exports per 24 hours per user (exports are expensive — full table scans).
+
+**23. Audit Log** — `UserEvent` model: `userId`, `action`, `metadata JSON`, `ipAddress`, `createdAt`. Log on: login, register, plan upgraded, data exported, account deleted, API key created. `GET /api/admin/users/:id/events` (admin-only). Audit logs are never deleted — even when the user account is deleted, keep the records.
+
+**24. WebSocket Real-time Updates** — Socket.io. Emit events to the user's socket room on: `habit.completed`, `streak.milestone`, `badge.earned`, `notification.created`. The `Notification` model from Phase 2 already has the data structure — WebSocket is just the delivery layer. Authenticate socket connections using the existing JWT.
+
+**25. API Key Management** — `ApiKey` model: `id`, `userId`, `keyHash` (SHA-256), `name`, `lastUsedAt`, `createdAt`, `expiresAt?`. `POST /api/developer/keys` — generate key, return raw value once, store only the hash. `DELETE /api/developer/keys/:id` — revoke. Add API key authentication middleware as an alternative to Bearer JWT on all routes. Gate behind Pro/Enterprise plan.
+
+**26. Webhook System** — `Webhook` model: `userId`, `url`, `events[]`, `secret`, `isActive`. Events: `mood.created`, `habit.completed`, `habit.streak.milestone`, `burnout.risk.changed`, `badge.earned`. On each triggering event, POST a signed `HMAC-SHA256` payload to the registered URL. Retry 3 times with exponential backoff on failure. `GET /api/developer/webhooks/:id/deliveries` for delivery history.
+
+**27. Public Developer Portal** — A static `/developer` route serving an HTML page with: API key management UI, interactive endpoint explorer, code examples in Node.js / Python / curl, rate limit dashboard, and webhook event catalog. This is what makes PulseBloom a platform rather than just an app.
+
+---
+
+## 🚀 Phase 8 — Deployment
+
+**28. Docker Containerization** — `docker-compose.yml` with services: `app` (Node.js), `postgres`, `mongo`, `redis`. Add health checks on all services. Multi-stage Dockerfile: `builder` stage compiles TypeScript, `runner` stage copies compiled output only.
+
+**29. AWS Deployment** — ECS Fargate for the Node app, RDS PostgreSQL, DocumentDB (MongoDB-compatible), ElastiCache Redis. Store secrets in AWS Secrets Manager and inject via environment variables at task definition level.
 
 ---
 

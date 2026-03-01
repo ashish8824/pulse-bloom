@@ -1,5 +1,16 @@
+// src/modules/mood/mood.routes.ts
+//
+// ─────────────────────────────────────────────────────────────────
+// CHANGE FROM ORIGINAL:
+//   1. Import checkPlanLimit from planLimiter
+//   2. Add checkPlanLimit("mood_history") to GET / only
+//      Free users' startDate is clamped to last 30 days — not blocked.
+//      All other routes are completely unchanged.
+// ─────────────────────────────────────────────────────────────────
+
 import { Router } from "express";
 import { protect } from "../../middlewares/auth.middleware";
+import { checkPlanLimit } from "../../middlewares/planLimiter"; // ← NEW
 import {
   createMood,
   getMoodByIdController,
@@ -549,7 +560,11 @@ router.get("/burnout-risk", protect, getBurnoutRisk);
  * /api/mood:
  *   get:
  *     summary: Get paginated mood history
- *     description: Returns mood entries in reverse-chronological order with optional date filtering.
+ *     description: |
+ *       Returns mood entries in reverse-chronological order with optional date filtering.
+ *       Free plan users are limited to the last 30 days — if startDate is older than
+ *       30 days, it will be silently clamped and a `planLimitApplied` field is included
+ *       in the response so the frontend can show an upgrade banner.
  *     tags: [Mood]
  *     security:
  *       - bearerAuth: []
@@ -571,7 +586,7 @@ router.get("/burnout-risk", protect, getBurnoutRisk);
  *           type: string
  *           format: date
  *           example: "2026-02-01"
- *         description: Inclusive start date (YYYY-MM-DD)
+ *         description: Inclusive start date (YYYY-MM-DD). Free plan clamps this to last 30 days.
  *       - in: query
  *         name: endDate
  *         schema:
@@ -591,7 +606,10 @@ router.get("/burnout-risk", protect, getBurnoutRisk);
  *       401:
  *         description: Unauthorized
  */
-router.get("/", protect, getMoods);
+// ↓ checkPlanLimit("mood_history") clamps free users' startDate to last 30 days.
+//   It does NOT block — it adjusts req.query.startDate and attaches req.planLimitApplied.
+//   The controller should forward planLimitApplied in the response body if present.
+router.get("/", protect, checkPlanLimit("mood_history"), getMoods);
 
 // ─── CREATE ───────────────────────────────────────────────────────
 

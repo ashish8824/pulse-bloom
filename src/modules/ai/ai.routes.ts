@@ -1,14 +1,15 @@
 // src/modules/ai/ai.routes.ts
 //
 // ─────────────────────────────────────────────────────────────────
-// ROUTES — maps HTTP endpoints to controller functions.
-//
-// All routes here are protected — require a valid JWT.
-// The `protect` middleware verifies the token and attaches req.userId.
+// CHANGE FROM ORIGINAL:
+//   1. Import checkPlanLimit from planLimiter
+//   2. Add checkPlanLimit("ai_insights") to GET /insights
+//      Free users receive a 403 with upgrade prompt — never reach the controller.
 // ─────────────────────────────────────────────────────────────────
 
 import { Router } from "express";
 import { protect } from "../../middlewares/auth.middleware";
+import { checkPlanLimit } from "../../middlewares/planLimiter"; // ← NEW
 import { getInsightsController } from "./ai.controller";
 
 const router = Router();
@@ -37,6 +38,9 @@ const router = Router();
  *       Minimum data requirements to generate insights:
  *       - At least 7 mood entries, OR
  *       - At least 1 habit with 5+ completions
+ *
+ *       **Plan restriction:** Available on Pro and Enterprise plans only.
+ *       Free plan users receive a 403 with an upgrade prompt.
  *
  *     tags: [AI Insights]
  *     security:
@@ -84,9 +88,18 @@ const router = Router();
  *                   example: "Insights served from cache"
  *       401:
  *         description: Unauthorized
+ *       403:
+ *         description: Plan limit — AI insights require Pro or Enterprise plan
  *       500:
  *         description: OpenAI API error or server error
  */
-router.get("/insights", protect, getInsightsController);
+// ↓ protect → checkPlanLimit("ai_insights") → controller
+//   Free users are hard-blocked with a 403 upgrade prompt before the controller runs.
+router.get(
+  "/insights",
+  protect,
+  checkPlanLimit("ai_insights"),
+  getInsightsController,
+);
 
 export default router;
