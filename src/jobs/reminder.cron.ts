@@ -1,18 +1,27 @@
 /**
  * src/jobs/reminder.cron.ts
  *
- * Runs every minute. For each minute tick:
+ * Runs every minute. For each tick it processes TWO types of reminders:
  *
- *   1. Format current time as "HH:MM"
- *   2. Find habits where reminderOn=true AND reminderTime="HH:MM"
- *   3. For each → check if already completed this period
- *   4. Not completed → send reminder email
- *   5. Already completed → skip silently
+ *   ── HABIT REMINDERS ─────────────────────────────────────────────
+ *   1. Find habits WHERE reminderOn=true AND reminderTime=HH:MM
+ *   2. For each → check if already completed this period
+ *   3. Not completed → send habit reminder email
+ *   4. Already completed → skip silently
+ *
+ *   ── MOOD REMINDERS  (NEW) ────────────────────────────────────────
+ *   1. Find users WHERE moodReminderOn=true AND moodReminderTime=HH:MM
+ *   2. For each → check if a MoodEntry exists for today
+ *   3. No entry → send mood check-in email
+ *   4. Already logged → skip silently
+ *
+ * Both loops run concurrently inside the same tick via Promise.allSettled(),
+ * so a single email failure in one loop never blocks the other.
  */
 
 import cron from "node-cron";
 import { prisma } from "../config/db";
-import { sendReminderEmail } from "../utils/mailer";
+import { sendReminderEmail, sendMoodReminderEmail } from "../utils/mailer";
 import { normalizeDailyDate, normalizeWeeklyDate } from "../utils/date.utils";
 import { logger } from "../utils/logger";
 
@@ -20,14 +29,10 @@ import { logger } from "../utils/logger";
 // HELPER: getCurrentHHMM
 // ─────────────────────────────────────────────────────────────────────────────
 /**
- * Returns the current time as "HH:MM" — zero-padded, 24-hour format.
+ * Returns the current time as "HH:MM" in 24-hour format.
+ * This matches EXACTLY how reminderTime / moodReminderTime are stored in DB.
  *
- * This matches EXACTLY how reminderTime is stored in the Habit table.
- *
- * Examples:
- *   8:05 AM  → "08:05"
- *   2:30 PM  → "14:30"
- *   11:59 PM → "23:59"
+ * Examples:  8:05 AM → "08:05"  |  2:30 PM → "14:30"  |  11:59 PM → "23:59"
  */
 const getCurrentHHMM = (): string => {
   const now = new Date();
@@ -37,48 +42,55 @@ const getCurrentHHMM = (): string => {
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
+// HELPER: getStartOfToday
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Returns midnight UTC for today — used to check if a MoodEntry
+ * exists for the current calendar day.
+ *
+ * We reuse normalizeDailyDate() for consistency with how mood entries
+ * are timestamped elsewhere in the codebase.
+ */
+const getStartOfToday = (): Date => normalizeDailyDate();
+
+// ─────────────────────────────────────────────────────────────────────────────
 // HELPER: getPeriodStart
 // ─────────────────────────────────────────────────────────────────────────────
 /**
- * Returns the normalized period-start timestamp for a habit.
- *
- * WHY?
- *   Your habit.service.ts normalizes HabitLog.date when completing a habit:
- *     daily  → normalizeDailyDate()   = midnight today
- *     weekly → normalizeWeeklyDate()  = Monday midnight this ISO week
- *
- *   We use the SAME functions here so our DB lookup finds the same
- *   row that completeHabit() wrote. If we didn't, the check would
- *   always return "not completed" and send emails even when done.
+ * Returns the normalised period-start timestamp for a habit.
+ * Mirrors the normalisation done in habit.service.ts completeHabit().
  */
-const getPeriodStart = (frequency: "daily" | "weekly"): Date => {
-  return frequency === "daily" ? normalizeDailyDate() : normalizeWeeklyDate();
-};
+const getPeriodStart = (frequency: "daily" | "weekly"): Date =>
+  frequency === "daily" ? normalizeDailyDate() : normalizeWeeklyDate();
 
 // ─────────────────────────────────────────────────────────────────────────────
-// TYPE
+// TYPES
 // ─────────────────────────────────────────────────────────────────────────────
-
 type HabitWithUser = {
   id: string;
   title: string;
   frequency: string;
   userId: string;
-  user: {
-    email: string;
-    name: string;
-  };
+  user: { email: string; name: string };
+};
+
+type UserWithMoodReminder = {
+  id: string;
+  email: string;
+  name: string;
+  moodReminderTime: string | null;
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// CORE: processHabitReminder
+// HABIT REMINDER — processHabitReminder
 // ─────────────────────────────────────────────────────────────────────────────
 /**
- * Handles one habit per tick:
- *   → checks completion → sends email if needed
+ * Handles a single habit reminder for one tick:
+ *   • Checks whether the habit has already been completed this period
+ *   • Sends a reminder email if it hasn't
  *
  * Returns "sent" or "skipped".
- * Throws on failure so Promise.allSettled can track it.
+ * Throws on failure so Promise.allSettled tracks it as rejected.
  */
 const processHabitReminder = async (
   habit: HabitWithUser,
@@ -87,31 +99,19 @@ const processHabitReminder = async (
   const freq = habit.frequency as "daily" | "weekly";
   const periodStart = getPeriodStart(freq);
 
-  // ── Check completion ──────────────────────────────────────────────────────
-  //
-  // HabitLog has @@unique([habitId, date]) — findUnique is the
-  // fastest possible lookup (single indexed row read, no scan).
-  // We select only `id` because we just need to know if it EXISTS.
-
+  // HabitLog has @@unique([habitId, date]) — findUnique is an O(1) indexed lookup
   const existingLog = await prisma.habitLog.findUnique({
-    where: {
-      habitId_date: {
-        habitId: habit.id,
-        date: periodStart,
-      },
-    },
+    where: { habitId_date: { habitId: habit.id, date: periodStart } },
     select: { id: true },
   });
 
   if (existingLog) {
-    logger.debug("[ReminderCron] Already completed — skipping", {
+    logger.debug("[ReminderCron] Habit already completed — skipping", {
       habit: habit.title,
       user: habit.user.email,
     });
     return "skipped";
   }
-
-  // ── Send email ────────────────────────────────────────────────────────────
 
   const emailSent = await sendReminderEmail({
     to: habit.user.email,
@@ -121,106 +121,199 @@ const processHabitReminder = async (
   });
 
   if (!emailSent) {
-    // sendReminderEmail returns false and logs internally on SMTP failure.
-    // Throwing here lets Promise.allSettled count this as "failed".
-    throw new Error(`Email failed for "${habit.title}" → ${habit.user.email}`);
+    throw new Error(
+      `Habit email failed for "${habit.title}" → ${habit.user.email}`,
+    );
   }
+
+  logger.info("[ReminderCron] ✅ Habit reminder sent", {
+    to: habit.user.email,
+    habit: habit.title,
+  });
 
   return "sent";
 };
 
 // ─────────────────────────────────────────────────────────────────────────────
-// EXPORT: runReminderJob
+// MOOD REMINDER — processMoodReminder  ← NEW
 // ─────────────────────────────────────────────────────────────────────────────
 /**
- * The main job function — called every minute.
+ * Handles a single mood reminder for one tick:
+ *   • Checks whether the user has already logged a MoodEntry today
+ *   • Sends a check-in nudge email if they haven't
+ *
+ * Returns "sent" or "skipped".
+ * Throws on failure so Promise.allSettled tracks it as rejected.
+ */
+const processMoodReminder = async (
+  user: UserWithMoodReminder,
+  currentTime: string,
+): Promise<"sent" | "skipped"> => {
+  const todayStart = getStartOfToday();
+
+  // Check if ANY mood entry exists for this user today.
+  // We only need to know it exists — select: { id: true } is the lightest possible read.
+  const todayEntry = await prisma.moodEntry.findFirst({
+    where: {
+      userId: user.id,
+      createdAt: { gte: todayStart },
+    },
+    select: { id: true },
+  });
+
+  if (todayEntry) {
+    logger.debug("[ReminderCron] Mood already logged today — skipping", {
+      user: user.email,
+    });
+    return "skipped";
+  }
+
+  const emailSent = await sendMoodReminderEmail({
+    to: user.email,
+    userName: user.name,
+    reminderTime: currentTime,
+  });
+
+  if (!emailSent) {
+    throw new Error(`Mood email failed for ${user.email}`);
+  }
+
+  logger.info("[ReminderCron] ✅ Mood reminder sent", { to: user.email });
+  return "sent";
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// CORE: runReminderJob
+// ─────────────────────────────────────────────────────────────────────────────
+/**
+ * Main job body — called every minute by the cron schedule.
  * Exported so you can unit-test it directly without triggering cron.
+ *
+ * Execution order per tick:
+ *   1. Format current time as "HH:MM"
+ *   2. Query habits due now (habit reminders)          ← parallel DB calls
+ *   3. Query users with mood reminders due now
+ *   4. Process all habit reminders concurrently        ← Promise.allSettled
+ *   5. Process all mood reminders concurrently         ← Promise.allSettled
+ *   6. Log tick summary (sent / skipped / failed)
+ *
+ * Why two separate Promise.allSettled calls instead of mixing them?
+ *   • Cleaner summary logging (habit stats vs mood stats are reported separately)
+ *   • Easier to add per-category error handling later
+ *   • DB queries are still fully parallel (both run before any emails fire)
  */
 export const runReminderJob = async (): Promise<void> => {
   const currentTime = getCurrentHHMM();
 
   logger.info(`[ReminderCron] ⏱  Tick — ${currentTime}`);
 
-  // ── Step 1: Query habits scheduled for right now ──────────────────────────
+  // ── Step 1: Fetch habits and mood-reminder users in parallel ──────────────
   //
-  // Prisma translates this to:
-  //   SELECT h.*, u.email, u.name
-  //   FROM "Habit" h
-  //   JOIN "User" u ON h."userId" = u.id
-  //   WHERE h."reminderOn"   = true
-  //     AND h."reminderTime" = '08:30'   ← currentTime
-  //     AND h."isArchived"   = false
-  //
-  // The @@index([reminderOn, reminderTime]) makes this O(1) regardless
-  // of how many total habits exist in the database.
+  // Both DB queries fire simultaneously — total wait time = max(queryA, queryB)
+  // instead of queryA + queryB if we awaited them sequentially.
 
   let habits: HabitWithUser[];
+  let moodReminderUsers: UserWithMoodReminder[];
 
   try {
-    habits = await prisma.habit.findMany({
-      where: {
-        reminderOn: true,
-        reminderTime: currentTime,
-        isArchived: false,
-      },
-      select: {
-        id: true,
-        title: true,
-        frequency: true,
-        userId: true,
-        user: {
-          select: {
-            email: true,
-            name: true,
-          },
+    [habits, moodReminderUsers] = await Promise.all([
+      // ── Habit query ────────────────────────────────────────────────────────
+      // Uses @@index([reminderOn, reminderTime]) — O(1) regardless of total habits
+      prisma.habit.findMany({
+        where: {
+          reminderOn: true,
+          reminderTime: currentTime,
+          isArchived: false,
         },
-      },
-    });
+        select: {
+          id: true,
+          title: true,
+          frequency: true,
+          userId: true,
+          user: { select: { email: true, name: true } },
+        },
+      }),
+
+      // ── Mood reminder query  (NEW) ─────────────────────────────────────────
+      // Uses @@index([moodReminderOn, moodReminderTime]) — same O(1) pattern
+      prisma.user.findMany({
+        where: {
+          moodReminderOn: true,
+          moodReminderTime: currentTime,
+        },
+        select: {
+          id: true,
+          email: true,
+          name: true,
+          moodReminderTime: true,
+        },
+      }),
+    ]);
   } catch (err) {
-    // DB failure — log and return. node-cron retries automatically next minute.
     logger.error("[ReminderCron] DB query failed — will retry next tick", {
       error: err instanceof Error ? err.message : String(err),
     });
     return;
   }
 
-  if (habits.length === 0) {
-    logger.debug(`[ReminderCron] No habits scheduled for ${currentTime}`);
+  const totalWork = habits.length + moodReminderUsers.length;
+
+  if (totalWork === 0) {
+    logger.debug(`[ReminderCron] Nothing scheduled for ${currentTime}`);
     return;
   }
 
-  logger.info(`[ReminderCron] Found ${habits.length} habit(s) to process`);
-
-  // ── Step 2: Process all habits concurrently ───────────────────────────────
-  //
-  // Promise.allSettled() vs Promise.all():
-  //   Promise.all()        → 1 failure cancels ALL remaining ❌
-  //   Promise.allSettled() → every habit runs independently  ✅
-  //
-  // This guarantees that a failed email for user A
-  // never blocks the reminder for users B, C, D.
-
-  const results = await Promise.allSettled(
-    habits.map((habit) => processHabitReminder(habit, currentTime)),
+  logger.info(
+    `[ReminderCron] Found ${habits.length} habit(s), ${moodReminderUsers.length} mood reminder(s)`,
   );
 
-  // ── Step 3: Log tick summary ──────────────────────────────────────────────
+  // ── Step 2: Process habit reminders ──────────────────────────────────────
+  const habitResults =
+    habits.length > 0
+      ? await Promise.allSettled(
+          habits.map((habit) => processHabitReminder(habit, currentTime)),
+        )
+      : [];
 
-  const sent = results.filter(
-    (r) => r.status === "fulfilled" && r.value === "sent",
-  ).length;
-  const skipped = results.filter(
-    (r) => r.status === "fulfilled" && r.value === "skipped",
-  ).length;
-  const failed = results.filter((r) => r.status === "rejected").length;
+  // ── Step 3: Process mood reminders ───────────────────────────────────────
+  const moodResults =
+    moodReminderUsers.length > 0
+      ? await Promise.allSettled(
+          moodReminderUsers.map((user) =>
+            processMoodReminder(user, currentTime),
+          ),
+        )
+      : [];
 
-  logger.info("[ReminderCron] ✅ Tick complete", { sent, skipped, failed });
+  // ── Step 4: Log tick summary ──────────────────────────────────────────────
 
-  // Log each individual failure for debugging
-  results.forEach((result, i) => {
+  const summarise = (results: PromiseSettledResult<"sent" | "skipped">[]) => ({
+    sent: results.filter((r) => r.status === "fulfilled" && r.value === "sent")
+      .length,
+    skipped: results.filter(
+      (r) => r.status === "fulfilled" && r.value === "skipped",
+    ).length,
+    failed: results.filter((r) => r.status === "rejected").length,
+  });
+
+  const habitSummary = summarise(habitResults);
+  const moodSummary = summarise(moodResults);
+
+  logger.info("[ReminderCron] ✅ Tick complete", {
+    habits: habitSummary,
+    mood: moodSummary,
+  });
+
+  // Log individual failures for debugging
+  [...habitResults, ...moodResults].forEach((result, i) => {
     if (result.status === "rejected") {
-      logger.error("[ReminderCron] Habit failed", {
-        habit: habits[i]?.title,
+      const label =
+        i < habitResults.length
+          ? `habit[${habits[i]?.title}]`
+          : `mood[${moodReminderUsers[i - habitResults.length]?.email}]`;
+
+      logger.error("[ReminderCron] Reminder failed", {
+        item: label,
         reason: (result.reason as Error)?.message,
       });
     }
@@ -232,16 +325,9 @@ export const runReminderJob = async (): Promise<void> => {
 // ─────────────────────────────────────────────────────────────────────────────
 /**
  * Registers and starts the cron job.
- * Call once from server.ts after DB connections are ready.
+ * Call once from server.ts AFTER DB connections are ready.
  *
  * Schedule: "* * * * *" = every minute
- *
- *   ┌──── minute (0-59)       * = every minute
- *   │ ┌── hour (0-23)         * = every hour
- *   │ │ ┌ day of month (1-31) * = every day
- *   │ │ │ ┌ month (1-12)      * = every month
- *   │ │ │ │ ┌ day of week     * = every weekday
- *   * * * * *
  */
 export const startReminderCron = (): void => {
   const schedule = "* * * * *";
@@ -257,17 +343,13 @@ export const startReminderCron = (): void => {
       try {
         await runReminderJob();
       } catch (err) {
-        // Safety net — prevents any edge-case unhandled rejection
-        // from crashing the Node.js process entirely.
         logger.error("[ReminderCron] ❌ Unhandled error", {
           error: err instanceof Error ? err.message : String(err),
         });
       }
     },
-    {
-      timezone: "UTC", // change to "Asia/Kolkata" for IST if needed
-    },
+    { timezone: "UTC" }, // change to "Asia/Kolkata" for IST if needed
   );
 
-  logger.info("[ReminderCron] 🚀 Started — fires every minute");
+  logger.info("[ReminderCron] 🚀 Started — fires every minute (habits + mood)");
 };

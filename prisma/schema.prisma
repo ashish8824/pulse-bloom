@@ -11,15 +11,6 @@ generator client {
 
 // ─────────────────────────────────────────────────────────────────
 // PLAN ENUM
-//
-// Controls feature access across the entire platform.
-// The plan field lives on User for fast O(1) reads in middleware.
-// The Subscription model stores the full billing lifecycle separately.
-//
-// Tier limits (enforced by planLimiter.ts middleware):
-//   free       → max 3 habits, 30-day mood history, no AI insights
-//   pro        → unlimited habits, full history, AI insights
-//   enterprise → everything in pro + team/org features
 // ─────────────────────────────────────────────────────────────────
 enum Plan {
   free
@@ -29,9 +20,6 @@ enum Plan {
 
 // ─────────────────────────────────────────────────────────────────
 // SUBSCRIPTION STATUS ENUM
-//
-// Mirrors Stripe subscription statuses so our DB always reflects
-// the current billing state after webhook events.
 // ─────────────────────────────────────────────────────────────────
 enum SubscriptionStatus {
   active
@@ -42,21 +30,33 @@ enum SubscriptionStatus {
 }
 
 // ─────────────────────────────────────────────────────────────────
+// NOTIFICATION TYPE ENUM  ← NEW
+//
+// Each value maps to a distinct trigger in the application:
+//
+//   STREAK_MILESTONE     → habit streak hits 7, 14, 21, 30, 60, 90, 100, 180, 365
+//   BURNOUT_RISK_CHANGED → burnout level shifted (Low→Moderate, Moderate→High, etc.)
+//   WEEKLY_SUMMARY       → Saturday digest was sent (in-app record of the email)
+//   BADGE_EARNED         → achievement badge unlocked (Phase 4)
+//   CHALLENGE_UPDATE     → challenge joined / completed (Phase 4)
+//   MOOD_REMINDER        → mood check-in reminder fired (in-app record)
+//   HABIT_REMINDER       → habit reminder fired (in-app record)
+//
+// New types can be added here without touching any other enum —
+// the notification module is generic and type-agnostic.
+// ─────────────────────────────────────────────────────────────────
+enum NotificationType {
+  STREAK_MILESTONE
+  BURNOUT_RISK_CHANGED
+  WEEKLY_SUMMARY
+  BADGE_EARNED
+  CHALLENGE_UPDATE
+  MOOD_REMINDER
+  HABIT_REMINDER
+}
+
+// ─────────────────────────────────────────────────────────────────
 // USER
-//
-// New fields added for auth enhancement:
-//   isVerified      — false until user clicks email verification link
-//   updatedAt       — auto-updated on every write (needed for token invalidation)
-//
-// New fields added for monetization (Phase 1):
-//   plan            — current active plan (fast read for middleware)
-//   stripeCustomerId   — set on first Stripe checkout, used for billing portal
-//   stripeSubscriptionId — tracks the active Stripe subscription
-//
-// New fields added for engagement (Phase 2, added now to avoid future migration):
-//   weeklyDigestOn  — opt-in weekly email summary (Saturday 8am cron)
-//   moodReminderTime — HH:MM for daily mood check-in nudge
-//   moodReminderOn  — toggle mood reminder without clearing the time
 // ─────────────────────────────────────────────────────────────────
 model User {
   id                   String   @id @default(uuid())
@@ -68,14 +68,14 @@ model User {
   updatedAt            DateTime @updatedAt
 
   // ── Monetization ──────────────────────────────────────────────
-  plan                 Plan     @default(free)           // ← denormalized for fast middleware reads
-  stripeCustomerId     String?  @unique                  // ← set after first Stripe checkout session
-  stripeSubscriptionId String?  @unique                  // ← tracks active Stripe sub (null = free)
+  plan                 Plan     @default(free)
+  stripeCustomerId     String?  @unique
+  stripeSubscriptionId String?  @unique
 
-  // ── Engagement (Phase 2 — pre-added to avoid later migration) ─
-  weeklyDigestOn       Boolean  @default(true)           // ← Saturday 8am email digest opt-in
-  moodReminderTime     String?                           // ← HH:MM — matches cron tick format
-  moodReminderOn       Boolean  @default(false)          // ← toggle without clearing time
+  // ── Engagement (Phase 2) ──────────────────────────────────────
+  weeklyDigestOn       Boolean  @default(true)
+  moodReminderTime     String?
+  moodReminderOn       Boolean  @default(false)
 
   moods              MoodEntry[]
   habits             Habit[]
@@ -83,97 +83,104 @@ model User {
   refreshTokens      RefreshToken[]
   emailVerifications EmailVerification[]
   passwordResets     PasswordReset[]
-  subscription       Subscription?                       // ← one-to-one billing record
+  subscription       Subscription?
+  notifications      Notification[]       // ← NEW relation
 
-  @@index([moodReminderOn, moodReminderTime])  // cron job: find users with reminders due this minute
+  @@index([moodReminderOn, moodReminderTime])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// NOTIFICATION  ← NEW
+//
+// Stores in-app notifications for a user.
+//
+// Design decisions:
+//
+//   isRead: false → appears in the unread badge count
+//          true  → appears in the history list but not the badge
+//
+//   relatedId: optional foreign-key-style pointer to the entity that
+//              triggered this notification. Not a true FK because the
+//              target model varies by type:
+//                STREAK_MILESTONE → habitId
+//                BURNOUT_RISK_CHANGED → null (no single entity)
+//                BADGE_EARNED → badgeId (Phase 4)
+//              Storing it here lets the frontend deep-link to the
+//              relevant screen without a separate lookup.
+//
+//   Indexes:
+//     [userId]             → all list queries filter by userId
+//     [userId, isRead]     → unread count query: WHERE userId=X AND isRead=false
+//     [userId, createdAt]  → paginated history: WHERE userId=X ORDER BY createdAt DESC
+//     [createdAt]          → cleanup cron: DELETE WHERE createdAt < 90 days ago
+//
+// Retention: notifications older than 90 days are deleted by a
+// cleanup cron (runs daily) to keep the table lean.
+// ─────────────────────────────────────────────────────────────────
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  type      NotificationType
+  title     String           // short, bold — e.g. "🔥 7-Day Streak!"
+  message   String           // full body — e.g. "You've completed Morning Meditation 7 days in a row."
+  isRead    Boolean          @default(false)
+  relatedId String?          // optional: habitId, badgeId, etc. for deep-linking
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, isRead])     // fast unread count
+  @@index([userId, createdAt])  // fast paginated history
+  @@index([createdAt])          // fast cleanup cron
 }
 
 // ─────────────────────────────────────────────────────────────────
 // SUBSCRIPTION
-//
-// Stores the full billing lifecycle for a user.
-// Created when a user upgrades, updated via Stripe webhooks.
-//
-// Why separate from User?
-//   • Keeps User lean — plan field gives fast access for middleware
-//   • Subscription holds audit-level billing detail (period dates, status history)
-//   • One-to-one: one user → at most one active subscription record
-//
-// Flow:
-//   POST /api/billing/checkout       → creates Stripe session, creates Subscription row
-//   POST /api/billing/webhook        → on payment_succeeded → set status=active, update User.plan
-//                                      on subscription_cancelled → set status=cancelled, revert User.plan=free
-//   GET  /api/billing/status         → returns this row for the frontend billing page
 // ─────────────────────────────────────────────────────────────────
 model Subscription {
   id                   String             @id @default(uuid())
-  userId               String             @unique               // one subscription per user
-  plan                 Plan                                     // mirrors User.plan (source of truth here)
+  userId               String             @unique
+  plan                 Plan
   status               SubscriptionStatus @default(trialing)
-  stripeSubscriptionId String?            @unique               // null until Stripe confirms
-  currentPeriodStart   DateTime?                               // from Stripe webhook payload
-  currentPeriodEnd     DateTime?                               // used to show renewal date in UI
-  cancelledAt          DateTime?                               // set when user cancels
+  stripeSubscriptionId String?            @unique
+  currentPeriodStart   DateTime?
+  currentPeriodEnd     DateTime?
+  cancelledAt          DateTime?
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
-  @@index([stripeSubscriptionId])  // webhook lookups hit this constantly
+  @@index([stripeSubscriptionId])
 }
 
 // ─────────────────────────────────────────────────────────────────
 // REFRESH TOKEN
-//
-// One user can have many active refresh tokens (multi-device support).
-//
-// Flow:
-//   POST /api/auth/login         → creates RefreshToken row, returns token in body
-//   POST /api/auth/refresh-token → validates token, rotates it (delete old, create new)
-//   POST /api/auth/logout        → deletes the specific RefreshToken row
-//
-// Security model:
-//   • Token stored as plain string (already a 256-bit random hex — no need to hash)
-//   • expiresAt checked on every use
-//   • isRevoked set on logout (allows audit trail without hard delete)
-//   • @@index([token]) for O(1) lookup on every refresh/logout call
 // ─────────────────────────────────────────────────────────────────
 model RefreshToken {
   id        String   @id @default(uuid())
-  token     String   @unique              // 256-bit random hex generated in service
+  token     String   @unique
   userId    String
-  expiresAt DateTime                      // set to now() + 7 days on creation
-  isRevoked Boolean  @default(false)      // true after logout; row kept for audit
+  expiresAt DateTime
+  isRevoked Boolean  @default(false)
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([token])   // critical: every refresh request looks up by token
-  @@index([userId])  // needed for "logout all devices" (delete all by userId)
+  @@index([token])
+  @@index([userId])
 }
 
 // ─────────────────────────────────────────────────────────────────
 // EMAIL VERIFICATION
-//
-// Created on register. Deleted after successful verification.
-//
-// Flow:
-//   POST /api/auth/register      → creates row, sends OTP email
-//   POST /api/auth/verify-email  → checks OTP + expiry, sets user.isVerified = true, deletes row
-//   POST /api/auth/resend-verification → deletes old row, creates new row, sends new OTP
-//
-// Security:
-//   • OTP is a 6-digit number (100000–999999), easy for users to type
-//   • expiresAt = now() + 15 minutes (short window reduces brute-force risk)
-//   • Rate limiter on resend route prevents OTP spam
-//   • Row deleted after use — OTP is single-use
 // ─────────────────────────────────────────────────────────────────
 model EmailVerification {
   id        String   @id @default(uuid())
-  otp       String                        // 6-digit OTP, stored as string
+  otp       String
   userId    String
-  expiresAt DateTime                      // now() + 15 minutes
+  expiresAt DateTime
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
@@ -183,36 +190,22 @@ model EmailVerification {
 
 // ─────────────────────────────────────────────────────────────────
 // PASSWORD RESET
-//
-// Created when user requests a reset. Deleted after use.
-//
-// Flow:
-//   POST /api/auth/forgot-password  → creates row, sends reset link with token
-//   POST /api/auth/reset-password   → validates token + expiry, hashes new password,
-//                                      updates user, revokes all refresh tokens, deletes row
-//
-// Security:
-//   • Token = 64-char random hex (crypto.randomBytes(32).toString('hex'))
-//   • expiresAt = now() + 1 hour
-//   • Resetting password revokes ALL existing refresh tokens (forces re-login everywhere)
-//   • Row deleted after use — token is single-use
-//   • Always return 200 on forgot-password even if email not found (prevents user enumeration)
 // ─────────────────────────────────────────────────────────────────
 model PasswordReset {
   id        String   @id @default(uuid())
-  token     String   @unique              // 64-char random hex
+  token     String   @unique
   userId    String
-  expiresAt DateTime                      // now() + 1 hour
+  expiresAt DateTime
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
-  @@index([token])   // lookup by token on reset
+  @@index([token])
   @@index([userId])
 }
 
 // ─────────────────────────────────────────────────────────────────
-// MOOD ENTRY (unchanged)
+// MOOD ENTRY
 // ─────────────────────────────────────────────────────────────────
 model MoodEntry {
   id        String   @id @default(uuid())
@@ -229,7 +222,7 @@ model MoodEntry {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// HABIT (unchanged)
+// HABIT
 // ─────────────────────────────────────────────────────────────────
 enum HabitFrequency {
   daily
@@ -271,7 +264,7 @@ model Habit {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// HABIT LOG (unchanged)
+// HABIT LOG
 // ─────────────────────────────────────────────────────────────────
 model HabitLog {
   id        String   @id @default(uuid())
@@ -288,7 +281,7 @@ model HabitLog {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// AI INSIGHT CACHE (unchanged)
+// AI INSIGHT CACHE
 // ─────────────────────────────────────────────────────────────────
 model AiInsight {
   id          String   @id @default(uuid())

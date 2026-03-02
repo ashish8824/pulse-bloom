@@ -5,27 +5,21 @@ import { ZodError } from "zod";
 
 // ─────────────────────────────────────────────────────────────────
 // HTTP STATUS MAP
-//
-// Maps known error message strings to the correct HTTP status code.
-// Every intentional `throw new Error("...")` in any service layer
-// must have an entry here, otherwise it defaults to 400.
-//
-// Organized by module for readability.
 // ─────────────────────────────────────────────────────────────────
 const HTTP_STATUS_MAP: Record<string, number> = {
   // ── Auth — Register ──────────────────────────────────────────
-  "User already exists": 409, // 409 Conflict — duplicate resource
+  "User already exists": 409,
 
   // ── Auth — Email Verification ────────────────────────────────
   "Invalid verification attempt": 400,
   "Email is already verified": 409,
   "No pending verification found. Please request a new code.": 404,
   "Invalid verification code": 400,
-  "Verification code has expired. Please request a new one.": 410, // 410 Gone — timed out
+  "Verification code has expired. Please request a new one.": 410,
 
   // ── Auth — Login ─────────────────────────────────────────────
-  "Invalid credentials": 401, // 401 Unauthorized — not authenticated
-  "Please verify your email before logging in": 403, // 403 Forbidden — authenticated but blocked
+  "Invalid credentials": 401,
+  "Please verify your email before logging in": 403,
 
   // ── Auth — Refresh Token ─────────────────────────────────────
   "Invalid refresh token": 401,
@@ -35,6 +29,9 @@ const HTTP_STATUS_MAP: Record<string, number> = {
   // ── Auth — Forgot/Reset Password ─────────────────────────────
   "Invalid or expired reset token": 400,
 
+  // ── Auth — Preferences ───────────────────────────────────────
+  "Cannot enable mood reminder without a reminder time. Please provide moodReminderTime (e.g. '08:30').": 400,
+
   // ── Auth — General ───────────────────────────────────────────
   "User not found": 404,
 
@@ -43,27 +40,24 @@ const HTTP_STATUS_MAP: Record<string, number> = {
   "Habit already completed for this period": 409,
   "Habit is already archived": 409,
   "Cannot complete an archived habit. Restore it first.": 400,
+
+  // ── Notifications  ← NEW ─────────────────────────────────────
+  // "Notification not found" covers both genuinely missing notifications
+  // AND notifications that belong to a different user — we return 404
+  // in both cases to avoid leaking that a notification ID exists at all.
+  "Notification not found": 404,
 };
 
 // ─────────────────────────────────────────────────────────────────
 // GLOBAL ERROR HANDLER
-//
-// Must be registered AFTER all routes in app.ts:
-//   app.use(errorHandler);
-//
-// Express identifies this as an error handler because it has exactly
-// 4 parameters. Without all 4, Express ignores it as an error handler.
 // ─────────────────────────────────────────────────────────────────
 export const errorHandler = (
   err: unknown,
   req: Request,
   res: Response,
-  next: NextFunction, // required by Express even if unused — do NOT remove
+  next: NextFunction,
 ) => {
   // ── 1. Zod validation errors ──────────────────────────────────
-  // ZodError is thrown by schema.parse() calls in controllers.
-  // Maps to 400 with per-field error details the frontend can use
-  // to highlight specific invalid form fields.
   if (err instanceof ZodError) {
     res.status(400).json({
       error: "Validation failed",
@@ -76,9 +70,6 @@ export const errorHandler = (
   }
 
   // ── 2. Known application errors ───────────────────────────────
-  // Thrown intentionally via `throw new Error("...")` in service files.
-  // Look up the message in HTTP_STATUS_MAP for the correct status code.
-  // Default to 400 (Bad Request) if not explicitly mapped.
   if (err instanceof Error) {
     const status = HTTP_STATUS_MAP[err.message] ?? 400;
     res.status(status).json({ error: err.message });
@@ -86,12 +77,6 @@ export const errorHandler = (
   }
 
   // ── 3. Unknown / unexpected errors ────────────────────────────
-  // DB connection lost, null pointer dereference, third-party SDK crash, etc.
-  // Log full error server-side for debugging.
-  // NEVER expose raw error details to the client — leaks internal implementation.
   console.error("[Unhandled Error]", err);
-
-  res.status(500).json({
-    error: "Internal Server Error",
-  });
+  res.status(500).json({ error: "Internal Server Error" });
 };

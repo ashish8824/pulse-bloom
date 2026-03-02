@@ -6,11 +6,6 @@ import { prisma } from "../../config/db";
 // USER OPERATIONS
 // ═════════════════════════════════════════════════════════════════
 
-/**
- * Create a new user.
- * isVerified defaults to false (Prisma schema default).
- * The email verification OTP is created separately in a follow-up call.
- */
 export const createUser = async (data: {
   email: string;
   password: string;
@@ -19,22 +14,13 @@ export const createUser = async (data: {
   return prisma.user.create({ data });
 };
 
-/**
- * Find user by email.
- * Used in: login, register (duplicate check), forgot-password, resend-verification.
- */
 export const findUserByEmail = async (email: string) => {
   return prisma.user.findUnique({ where: { email } });
 };
 
-/**
- * Find user by ID.
- * Used in: GET /me, protect middleware (optional — we trust the JWT payload for now).
- */
 export const findUserById = async (userId: string) => {
   return prisma.user.findUnique({
     where: { id: userId },
-    // Never return the password hash to the application layer
     select: {
       id: true,
       email: true,
@@ -42,14 +28,16 @@ export const findUserById = async (userId: string) => {
       isVerified: true,
       createdAt: true,
       updatedAt: true,
+      // ── Engagement preferences ─────────────────────────────────
+      // Returned by GET /api/auth/me so the frontend can
+      // pre-populate the preferences toggles without a separate call.
+      weeklyDigestOn: true,
+      moodReminderOn: true,
+      moodReminderTime: true,
     },
   });
 };
 
-/**
- * Mark user's email as verified.
- * Called after OTP is confirmed in auth.service.ts.
- */
 export const markUserVerified = async (userId: string) => {
   return prisma.user.update({
     where: { id: userId },
@@ -57,10 +45,6 @@ export const markUserVerified = async (userId: string) => {
   });
 };
 
-/**
- * Update user's hashed password.
- * Called after password reset is confirmed.
- */
 export const updateUserPassword = async (
   userId: string,
   hashedPassword: string,
@@ -71,18 +55,71 @@ export const updateUserPassword = async (
   });
 };
 
+// ─────────────────────────────────────────────────────────────────
+// UPDATE USER PREFERENCES  ← NEW
+//
+// Used by PATCH /api/auth/me/preferences.
+//
+// Only the fields explicitly passed are updated (partial update).
+// Prisma skips undefined fields automatically — no need to merge
+// the existing row in the service layer.
+//
+// Valid fields:
+//   weeklyDigestOn   — opt-in/out of Saturday 8am email digest
+//   moodReminderOn   — toggle mood reminder without clearing the time
+//   moodReminderTime — "HH:MM" for daily mood nudge (null = clear it)
+// ─────────────────────────────────────────────────────────────────
+export const updateUserPreferences = async (
+  userId: string,
+  data: {
+    weeklyDigestOn?: boolean;
+    moodReminderOn?: boolean;
+    moodReminderTime?: string | null; // null explicitly clears the stored time
+  },
+) => {
+  return prisma.user.update({
+    where: { id: userId },
+    data,
+    select: {
+      id: true,
+      weeklyDigestOn: true,
+      moodReminderOn: true,
+      moodReminderTime: true,
+    },
+  });
+};
+
+// ─────────────────────────────────────────────────────────────────
+// FIND USERS FOR WEEKLY DIGEST  ← NEW
+//
+// Called by the weekly digest cron job (Saturday 8am).
+//
+// Returns only the fields needed to build the digest email.
+// We avoid selecting password or any sensitive field.
+//
+// The plan field is included so the cron can skip free users
+// if we ever want to gate the digest behind a plan tier.
+// (Currently it's available to everyone — weeklyDigestOn defaults true.)
+// ─────────────────────────────────────────────────────────────────
+export const findUsersForWeeklyDigest = async () => {
+  return prisma.user.findMany({
+    where: {
+      weeklyDigestOn: true,
+      isVerified: true, // never send to unverified accounts
+    },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      plan: true,
+    },
+  });
+};
+
 // ═════════════════════════════════════════════════════════════════
 // REFRESH TOKEN OPERATIONS
 // ═════════════════════════════════════════════════════════════════
 
-/**
- * Save a new refresh token to the database.
- * One user can have many active tokens (multi-device support).
- *
- * @param token     — 256-bit random hex string generated in auth.service.ts
- * @param userId    — the user this session belongs to
- * @param expiresAt — 7 days from now (set in auth.service.ts)
- */
 export const createRefreshToken = async (data: {
   token: string;
   userId: string;
@@ -91,12 +128,6 @@ export const createRefreshToken = async (data: {
   return prisma.refreshToken.create({ data });
 };
 
-/**
- * Find a refresh token row by its token string.
- * Includes the related user so the service can issue a new access token.
- *
- * The @@index([token]) on the model makes this lookup O(1) at scale.
- */
 export const findRefreshToken = async (token: string) => {
   return prisma.refreshToken.findUnique({
     where: { token },
@@ -113,10 +144,6 @@ export const findRefreshToken = async (token: string) => {
   });
 };
 
-/**
- * Revoke a single refresh token (logout from one device).
- * Sets isRevoked = true instead of deleting — keeps an audit trail.
- */
 export const revokeRefreshToken = async (token: string) => {
   return prisma.refreshToken.update({
     where: { token },
@@ -124,10 +151,6 @@ export const revokeRefreshToken = async (token: string) => {
   });
 };
 
-/**
- * Revoke ALL refresh tokens for a user (logout from all devices).
- * Called after a password reset to force re-authentication everywhere.
- */
 export const revokeAllRefreshTokens = async (userId: string) => {
   return prisma.refreshToken.updateMany({
     where: { userId, isRevoked: false },
@@ -135,20 +158,10 @@ export const revokeAllRefreshTokens = async (userId: string) => {
   });
 };
 
-/**
- * Delete expired or revoked tokens to keep the table clean.
- * Call this from a nightly cron job (e.g., reminder.cron.ts or a dedicated cleanup job).
- *
- * Usage:
- *   await cleanupExpiredRefreshTokens();
- */
 export const cleanupExpiredRefreshTokens = async () => {
   return prisma.refreshToken.deleteMany({
     where: {
-      OR: [
-        { expiresAt: { lt: new Date() } }, // already expired
-        { isRevoked: true }, // already revoked
-      ],
+      OR: [{ expiresAt: { lt: new Date() } }, { isRevoked: true }],
     },
   });
 };
@@ -157,11 +170,6 @@ export const cleanupExpiredRefreshTokens = async () => {
 // EMAIL VERIFICATION OPERATIONS
 // ═════════════════════════════════════════════════════════════════
 
-/**
- * Create a new email verification OTP row.
- * Any previous OTP for this user is deleted first (in auth.service.ts)
- * to prevent multiple valid OTPs existing at the same time.
- */
 export const createEmailVerification = async (data: {
   otp: string;
   userId: string;
@@ -170,10 +178,6 @@ export const createEmailVerification = async (data: {
   return prisma.emailVerification.create({ data });
 };
 
-/**
- * Find the most recent (first) email verification row for a user.
- * Ordered by createdAt desc to handle any edge cases with multiple rows.
- */
 export const findEmailVerification = async (userId: string) => {
   return prisma.emailVerification.findFirst({
     where: { userId },
@@ -181,12 +185,6 @@ export const findEmailVerification = async (userId: string) => {
   });
 };
 
-/**
- * Delete ALL email verification rows for a user.
- * Called on:
- *   1. Successful verification (cleanup after success)
- *   2. Resend (delete old OTP before creating a new one)
- */
 export const deleteEmailVerifications = async (userId: string) => {
   return prisma.emailVerification.deleteMany({ where: { userId } });
 };
@@ -195,10 +193,6 @@ export const deleteEmailVerifications = async (userId: string) => {
 // PASSWORD RESET OPERATIONS
 // ═════════════════════════════════════════════════════════════════
 
-/**
- * Create a password reset token row.
- * Any existing reset token for this user is deleted first (in auth.service.ts).
- */
 export const createPasswordReset = async (data: {
   token: string;
   userId: string;
@@ -207,25 +201,15 @@ export const createPasswordReset = async (data: {
   return prisma.passwordReset.create({ data });
 };
 
-/**
- * Find a password reset row by its token.
- * The @@index([token]) makes this an O(1) lookup.
- */
 export const findPasswordReset = async (token: string) => {
   return prisma.passwordReset.findUnique({
     where: { token },
     include: {
-      user: {
-        select: { id: true, email: true },
-      },
+      user: { select: { id: true, email: true } },
     },
   });
 };
 
-/**
- * Delete ALL password reset rows for a user.
- * Called after successful reset and on new forgot-password requests.
- */
 export const deletePasswordResets = async (userId: string) => {
   return prisma.passwordReset.deleteMany({ where: { userId } });
 };

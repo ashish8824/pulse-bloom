@@ -11,7 +11,8 @@ import { globalLimiter } from "./middlewares/rateLimiter";
 import authRoutes from "./modules/auth/auth.routes";
 import moodRoutes from "./modules/mood/mood.routes";
 import habitRoutes from "./modules/habits/habit.routes";
-import billingRoutes from "./modules/billing/billing.routes"; // ← NEW
+import billingRoutes from "./modules/billing/billing.routes";
+import notificationRoutes from "./modules/notifications/notification.routes"; // ← NEW
 
 const app = express();
 
@@ -53,7 +54,8 @@ app.use("/api/auth", authRoutes);
 app.use("/api/mood", moodRoutes);
 app.use("/api/habits", habitRoutes);
 app.use("/api/ai", require("./modules/ai/ai.routes").default);
-app.use("/api/billing", billingRoutes); // ← NEW
+app.use("/api/billing", billingRoutes);
+app.use("/api/notifications", notificationRoutes); // ← NEW
 
 // ─────────────────────────────────────────────────────────────────
 // GLOBAL ERROR HANDLER — must always be the LAST middleware

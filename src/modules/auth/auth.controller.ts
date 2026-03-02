@@ -10,6 +10,7 @@ import {
   logoutSchema,
   forgotPasswordSchema,
   resetPasswordSchema,
+  updatePreferencesSchema,
 } from "./auth.validation";
 import {
   registerUser,
@@ -21,6 +22,7 @@ import {
   getMe,
   forgotPassword,
   resetPassword,
+  updatePreferences,
 } from "./auth.service";
 
 // POST /api/auth/register
@@ -151,6 +153,30 @@ export const resetPasswordController = async (
   try {
     const { token, password } = resetPasswordSchema.parse(req.body);
     const result = await resetPassword(token, password);
+    res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+};
+
+// PATCH /api/auth/me/preferences  ← NEW
+//
+// Updates notification and reminder preferences for the authenticated user.
+// Requires: Authorization: Bearer <accessToken>
+// All body fields are optional — send only what you want to change.
+//
+// Example bodies:
+//   { "weeklyDigestOn": false }
+//   { "moodReminderOn": true, "moodReminderTime": "08:30" }
+//   { "moodReminderTime": null }  ← clears the time and disables reminder
+export const updatePreferencesController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const data = updatePreferencesSchema.parse(req.body);
+    const result = await updatePreferences(req.userId!, data);
     res.status(200).json(result);
   } catch (error) {
     next(error);

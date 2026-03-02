@@ -4,20 +4,9 @@ import { z } from "zod";
 
 // ─────────────────────────────────────────────────────────────────
 // REGISTER
-//
-// password regex enforces at least:
-//   • 1 uppercase letter
-//   • 1 lowercase letter
-//   • 1 digit
-//   • 1 special character
-//   • Minimum 8 characters
-//
-// This is intentionally stricter than the old min(6) rule.
-// Frontend should show a live password-strength indicator matching these rules.
 // ─────────────────────────────────────────────────────────────────
 export const registerSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
-
   password: z
     .string()
     .min(8, "Password must be at least 8 characters")
@@ -25,7 +14,6 @@ export const registerSchema = z.object({
       /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])/,
       "Password must contain uppercase, lowercase, number, and special character (@$!%*?&)",
     ),
-
   name: z
     .string()
     .min(2, "Name must be at least 2 characters")
@@ -43,9 +31,6 @@ export const loginSchema = z.object({
 
 // ─────────────────────────────────────────────────────────────────
 // VERIFY EMAIL
-//
-// otp: 6-digit string. Validated as exactly 6 digits.
-// email: needed to look up the user (no auth header at this stage)
 // ─────────────────────────────────────────────────────────────────
 export const verifyEmailSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
@@ -64,10 +49,6 @@ export const resendVerificationSchema = z.object({
 
 // ─────────────────────────────────────────────────────────────────
 // REFRESH TOKEN
-//
-// Client sends the refresh token in the request body.
-// We validate it's a non-empty string here; deeper validation
-// (expiry, revocation) happens in the service layer.
 // ─────────────────────────────────────────────────────────────────
 export const refreshTokenSchema = z.object({
   refreshToken: z.string().min(1, "Refresh token is required"),
@@ -75,9 +56,6 @@ export const refreshTokenSchema = z.object({
 
 // ─────────────────────────────────────────────────────────────────
 // LOGOUT
-//
-// Client sends the refresh token so we can revoke the specific session.
-// If token is missing, we still return 200 — no harm in a no-op logout.
 // ─────────────────────────────────────────────────────────────────
 export const logoutSchema = z.object({
   refreshToken: z.string().min(1, "Refresh token is required"),
@@ -85,9 +63,6 @@ export const logoutSchema = z.object({
 
 // ─────────────────────────────────────────────────────────────────
 // FORGOT PASSWORD
-//
-// Only requires email. We never reveal whether the email exists
-// (prevents user enumeration attacks).
 // ─────────────────────────────────────────────────────────────────
 export const forgotPasswordSchema = z.object({
   email: z.string().email("Please enter a valid email address"),
@@ -95,10 +70,6 @@ export const forgotPasswordSchema = z.object({
 
 // ─────────────────────────────────────────────────────────────────
 // RESET PASSWORD
-//
-// token: the 64-char hex token sent in the reset email link
-// password: same strong-password rules as register
-// confirmPassword: must match password (checked with .refine)
 // ─────────────────────────────────────────────────────────────────
 export const resetPasswordSchema = z
   .object({
@@ -114,26 +85,70 @@ export const resetPasswordSchema = z
   })
   .refine((data) => data.password === data.confirmPassword, {
     message: "Passwords do not match",
-    path: ["confirmPassword"], // error attached to confirmPassword field on the frontend
+    path: ["confirmPassword"],
   });
 
 // ─────────────────────────────────────────────────────────────────
-// UPDATE PROFILE (GET /me only reads, but PATCH /me would use this)
-// Included here for completeness — wire it up when you add PATCH /me
+// UPDATE PREFERENCES  ← NEW
+//
+// Used by PATCH /api/auth/me/preferences.
+//
+// All fields are optional — send only the ones you want to change.
+//
+// moodReminderTime rules:
+//   • Must be "HH:MM" in 24-hour format (e.g. "08:30", "21:00")
+//   • Send null explicitly to clear the stored time
+//   • Omit entirely to leave it unchanged
+//
+// Business rule enforced here via .refine():
+//   If moodReminderOn is being set to true, a moodReminderTime
+//   must already be set OR be provided in this same request.
+//   This prevents the cron from trying to match a null reminderTime.
 // ─────────────────────────────────────────────────────────────────
-export const updateProfileSchema = z.object({
-  name: z
-    .string()
-    .min(2, "Name must be at least 2 characters")
-    .max(60)
-    .trim()
-    .optional(),
-});
+export const updatePreferencesSchema = z
+  .object({
+    weeklyDigestOn: z.boolean().optional(),
 
-// ─── Inferred TypeScript types (use in service/controller layers) ─
+    moodReminderOn: z.boolean().optional(),
+
+    moodReminderTime: z
+      .string()
+      .regex(
+        /^([01]\d|2[0-3]):[0-5]\d$/,
+        "moodReminderTime must be in HH:MM 24-hour format (e.g. 08:30)",
+      )
+      .nullable() // null = clear the stored time
+      .optional(), // omit = leave unchanged
+  })
+  .refine(
+    (data) => {
+      // If explicitly turning ON mood reminders without providing a time,
+      // we need to check at the service level whether a time is already stored.
+      // The schema can only validate what's in the request body, so we allow
+      // moodReminderOn: true without moodReminderTime here — the service will
+      // reject it if no time is stored yet.
+      //
+      // However: if they send moodReminderOn: true AND moodReminderTime: null
+      // in the SAME request, that's a contradiction we can catch here.
+      if (data.moodReminderOn === true && data.moodReminderTime === null) {
+        return false;
+      }
+      return true;
+    },
+    {
+      message:
+        "Cannot enable mood reminder while clearing the reminder time. Provide a valid moodReminderTime.",
+      path: ["moodReminderTime"],
+    },
+  );
+
+// ─────────────────────────────────────────────────────────────────
+// INFERRED TYPES
+// ─────────────────────────────────────────────────────────────────
 export type RegisterInput = z.infer<typeof registerSchema>;
 export type LoginInput = z.infer<typeof loginSchema>;
 export type VerifyEmailInput = z.infer<typeof verifyEmailSchema>;
 export type RefreshTokenInput = z.infer<typeof refreshTokenSchema>;
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
+export type UpdatePreferencesInput = z.infer<typeof updatePreferencesSchema>;

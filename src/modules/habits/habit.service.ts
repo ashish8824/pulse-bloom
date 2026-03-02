@@ -27,6 +27,11 @@ import {
   ReminderInput,
 } from "./habit.validation";
 
+import {
+  createNotification,
+  buildStreakMilestoneNotification,
+} from "../notifications/notification.service";
+
 // ─────────────────────────────────────────────────────────────────
 // CONSTANTS
 // ─────────────────────────────────────────────────────────────────
@@ -229,19 +234,40 @@ export const completeHabit = async (
 
   try {
     const log = await createHabitLog(habitId, date, note);
-
     // Check if this completion triggered a streak milestone
     const { currentStreak } = await calculateHabitStreak(habitId, userId);
     const milestone = STREAK_MILESTONES.includes(currentStreak)
       ? currentStreak
       : null;
 
+    // ── Fire streak milestone notification (fire-and-forget) ─────
+    //
+    // WHY fire-and-forget (no await)?
+    //   A notification DB failure must NEVER cause the completion
+    //   response to fail. The habit IS marked complete — the
+    //   notification is a secondary side-effect.
+    //
+    // The .catch(() => {}) is redundant because createNotification()
+    // already catches internally and logs, but it makes the intent
+    // explicit and silences any TypeScript unhandled-promise warnings.
+    if (milestone !== null) {
+      const { title, message } = buildStreakMilestoneNotification(
+        habit.title,
+        milestone,
+      );
+      createNotification({
+        userId,
+        type: "STREAK_MILESTONE",
+        title,
+        message,
+        relatedId: habitId, // frontend uses this to deep-link to the habit
+      }).catch(() => {});
+    }
+
     return {
       message: "Habit marked as completed",
       log: { id: log.id, date: log.date, note: log.note },
       currentStreak,
-      // milestone is null if no milestone hit, or the number if one was hit
-      // Frontend uses this to show "🎉 7-day streak!" celebration
       milestone: milestone
         ? {
             days: milestone,

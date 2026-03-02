@@ -70,7 +70,7 @@ pulsebloom-backend/
 │   ├── modules/                         # Feature-based modules (Clean Architecture)
 │   │   │
 │   │   ├── auth/                        # ✅ Authentication Module
-│   │   │   ├── auth.controller.ts       # HTTP layer — all 9 auth endpoints
+│   │   │   ├── auth.controller.ts       # HTTP layer — all 10 auth endpoints
 │   │   │   ├── auth.service.ts          # Business logic:
 │   │   │   │                            #   • register (creates user, sends OTP)
 │   │   │   │                            #   • verifyEmail (validates OTP, issues tokens)
@@ -81,10 +81,11 @@ pulsebloom-backend/
 │   │   │   │                            #   • getProfile
 │   │   │   │                            #   • forgotPassword (sends reset link)
 │   │   │   │                            #   • resetPassword (validates token, revokes sessions)
-│   │   │   ├── auth.repository.ts       # DB layer — User + RefreshToken + OTP queries (Prisma)
-│   │   │   ├── auth.routes.ts           # All 9 routes with Swagger JSDoc + tiered rate limiting
-│   │   │   └── auth.validation.ts       # Zod schemas — register, login, verify, reset, etc.
-│   │   │
+│   │   │   │                            #   • updatePreferences (mood reminder + weekly digest)
+│   │   │   ├── auth.repository.ts       # DB layer — User + RefreshToken + OTP + preferences queries
+│   │   │   ├── auth.routes.ts           # All 10 routes with Swagger JSDoc + tiered rate limiting
+│   │   │   └── auth.validation.ts       # Zod schemas — register, login, verify, reset, preferences
+|   |   |
 │   │   ├── mood/                        # ✅ Mood Tracking + Analytics Module
 │   │   │   ├── mood.controller.ts       # HTTP layer — all 13 mood endpoints
 │   │   │   ├── mood.service.ts          # Business logic:
@@ -150,7 +151,9 @@ pulsebloom-backend/
 │   │   └── challenges/                  # 🔮 Upcoming
 │   │
 │   ├── jobs/
-│   │   └── reminder.cron.ts             # node-cron — runs every minute
+│   │   ├── reminder.cron.ts             # node-cron — runs every minute (habits + mood reminders)
+│   │   ├── weekly.digest.cron.ts        # node-cron — Saturday 8am UTC weekly behavioral digest
+│   │   └── notification.cleanup.cron.ts # node-cron — daily 3am UTC, deletes notifications > 90 days
 │   │
 │   ├── middlewares/
 │   │   ├── auth.middleware.ts           # JWT verification → attaches req.userId
@@ -207,17 +210,18 @@ Register → OTP Email → Verify Email → Login → Access Token (15m) + Refre
 
 ## Auth API Reference
 
-| Method | Endpoint                        | Auth | Rate Limit | Description                      |
-| ------ | ------------------------------- | ---- | ---------- | -------------------------------- |
-| `POST` | `/api/auth/register`            | ❌   | 10/15 min  | Create account, sends OTP email  |
-| `POST` | `/api/auth/verify-email`        | ❌   | —          | Confirm OTP, issues tokens       |
-| `POST` | `/api/auth/resend-verification` | ❌   | 3/15 min   | Re-send OTP email                |
-| `POST` | `/api/auth/login`               | ❌   | 10/15 min  | Login, issues tokens             |
-| `POST` | `/api/auth/refresh-token`       | ❌   | —          | Rotate access + refresh tokens   |
-| `POST` | `/api/auth/logout`              | ✅   | —          | Revoke current session           |
-| `GET`  | `/api/auth/me`                  | ✅   | —          | Get authenticated user profile   |
-| `POST` | `/api/auth/forgot-password`     | ❌   | 3/15 min   | Send password reset email        |
-| `POST` | `/api/auth/reset-password`      | ❌   | —          | Set new password via reset token |
+| Method  | Endpoint                        | Auth | Rate Limit | Description                                      |
+| ------- | ------------------------------- | ---- | ---------- | ------------------------------------------------ |
+| `POST`  | `/api/auth/register`            | ❌   | 10/15 min  | Create account, sends OTP email                  |
+| `POST`  | `/api/auth/verify-email`        | ❌   | —          | Confirm OTP, issues tokens                       |
+| `POST`  | `/api/auth/resend-verification` | ❌   | 3/15 min   | Re-send OTP email                                |
+| `POST`  | `/api/auth/login`               | ❌   | 10/15 min  | Login, issues tokens                             |
+| `POST`  | `/api/auth/refresh-token`       | ❌   | —          | Rotate access + refresh tokens                   |
+| `POST`  | `/api/auth/logout`              | ✅   | —          | Revoke current session                           |
+| `GET`   | `/api/auth/me`                  | ✅   | —          | Get authenticated user profile + preferences     |
+| `PATCH` | `/api/auth/me/preferences`      | ✅   | —          | Update mood reminder + weekly digest preferences |
+| `POST`  | `/api/auth/forgot-password`     | ❌   | 3/15 min   | Send password reset email                        |
+| `POST`  | `/api/auth/reset-password`      | ❌   | —          | Set new password via reset token                 |
 
 ---
 
@@ -405,6 +409,55 @@ Authorization: Bearer <accessToken>
 
 ---
 
+## Update Preferences
+
+```
+PATCH /api/auth/me/preferences
+Authorization: Bearer <accessToken>
+```
+
+All fields are optional — send only the ones you want to change.
+
+```json
+{ "weeklyDigestOn": false }
+```
+
+```json
+{ "moodReminderOn": true, "moodReminderTime": "08:30" }
+```
+
+```json
+{ "moodReminderTime": null }
+```
+
+> Sending `moodReminderTime: null` clears the stored time and automatically disables the mood reminder. Sending `moodReminderOn: true` without a `moodReminderTime` requires one to be already stored — otherwise returns `400`.
+
+**Fields:**
+
+| Field              | Type            | Description                                                                      |
+| ------------------ | --------------- | -------------------------------------------------------------------------------- |
+| `weeklyDigestOn`   | boolean         | Opt in/out of Saturday 8am weekly behavioral email summary                       |
+| `moodReminderOn`   | boolean         | Toggle mood check-in reminder. Requires `moodReminderTime` to be set             |
+| `moodReminderTime` | `HH:MM` \| null | 24-hour format reminder time. Send `null` to clear and auto-disable the reminder |
+
+**Response `200`:**
+
+```json
+{
+  "message": "Preferences updated successfully.",
+  "preferences": {
+    "id": "uuid",
+    "weeklyDigestOn": false,
+    "moodReminderOn": true,
+    "moodReminderTime": "08:30"
+  }
+}
+```
+
+> `GET /api/auth/me` now also returns `weeklyDigestOn`, `moodReminderOn`, and `moodReminderTime` alongside the user profile — no separate call needed to pre-populate the preferences UI.
+
+---
+
 ## Token Reference
 
 | Property             | Value                    |
@@ -421,6 +474,170 @@ All protected routes require:
 ```
 Authorization: Bearer <accessToken>
 ```
+
+---
+
+# 🔔 Notifications Module
+
+The Notifications Module provides an in-app inbox for behavioral events. Every notification is written to PostgreSQL and surfaced via 4 REST endpoints. The WebSocket delivery layer (Phase 7) will plug into this same data model — the DB layer is already built.
+
+Notifications are automatically cleaned up after **90 days** by a daily 3am cron job.
+
+## 🗺 Notifications API Reference
+
+| Method  | Endpoint                          | Auth | Description                                        |
+| ------- | --------------------------------- | ---- | -------------------------------------------------- |
+| `GET`   | `/api/notifications`              | ✅   | Paginated list, unread first (`?page=1&limit=20`)  |
+| `GET`   | `/api/notifications/unread-count` | ✅   | Lightweight count for notification badge           |
+| `PATCH` | `/api/notifications/:id/read`     | ✅   | Mark one notification as read (ownership enforced) |
+| `PATCH` | `/api/notifications/read-all`     | ✅   | Mark all notifications as read (bulk)              |
+
+## Notification Types
+
+| Type                   | Trigger                                                        | `relatedId`   |
+| ---------------------- | -------------------------------------------------------------- | ------------- |
+| `STREAK_MILESTONE`     | Habit streak hits 7, 14, 21, 30, 60, 90, 100, 180, or 365 days | `habitId`     |
+| `BURNOUT_RISK_CHANGED` | Burnout risk level shifts (e.g. Low → High)                    | —             |
+| `WEEKLY_SUMMARY`       | Saturday 8am digest was generated                              | —             |
+| `BADGE_EARNED`         | Achievement badge unlocked (Phase 4)                           | `badgeId`     |
+| `CHALLENGE_UPDATE`     | Challenge joined or completed (Phase 4)                        | `challengeId` |
+| `MOOD_REMINDER`        | Mood check-in reminder email fired                             | —             |
+| `HABIT_REMINDER`       | Habit reminder email fired                                     | `habitId`     |
+
+> `relatedId` lets the frontend deep-link to the relevant screen (e.g. tap a `STREAK_MILESTONE` notification → navigate to that habit's detail page).
+
+## Get Notifications
+
+```
+GET /api/notifications?page=1&limit=20
+Authorization: Bearer <accessToken>
+```
+
+**Ordering:** unread notifications always appear first, then most recent read notifications. Maximum 50 per page.
+
+```json
+{
+  "notifications": [
+    {
+      "id": "uuid",
+      "userId": "uuid",
+      "type": "STREAK_MILESTONE",
+      "title": "🔥 30-Day Streak!",
+      "message": "You've completed \"Morning Meditation\" 30 days in a row. Keep it up!",
+      "isRead": false,
+      "relatedId": "habit-uuid",
+      "createdAt": "2026-02-26T08:30:00.000Z"
+    }
+  ],
+  "pagination": {
+    "total": 47,
+    "page": 1,
+    "limit": 20,
+    "totalPages": 3
+  }
+}
+```
+
+## Get Unread Count
+
+```
+GET /api/notifications/unread-count
+Authorization: Bearer <accessToken>
+```
+
+Poll this on page load to drive the notification bell badge. Lightweight — returns a single integer, no list data.
+
+```json
+{ "unreadCount": 5 }
+```
+
+## Mark One as Read
+
+```
+PATCH /api/notifications/:id/read
+Authorization: Bearer <accessToken>
+```
+
+Ownership enforced — attempting to mark another user's notification returns `404` (not `403`) to avoid leaking that the ID exists. Idempotent — returns `200` if already read.
+
+```json
+{
+  "notification": {
+    "id": "uuid",
+    "type": "STREAK_MILESTONE",
+    "title": "🔥 30-Day Streak!",
+    "isRead": true,
+    "createdAt": "2026-02-26T08:30:00.000Z"
+  }
+}
+```
+
+## Mark All as Read
+
+```
+PATCH /api/notifications/read-all
+Authorization: Bearer <accessToken>
+```
+
+Bulk marks all unread notifications as read. Returns count of updated rows. Idempotent — returns `{ updated: 0 }` when everything is already read.
+
+```json
+{
+  "message": "5 notifications marked as read.",
+  "updated": 5
+}
+```
+
+## Notification Database Schema
+
+```prisma
+enum NotificationType {
+  STREAK_MILESTONE
+  BURNOUT_RISK_CHANGED
+  WEEKLY_SUMMARY
+  BADGE_EARNED
+  CHALLENGE_UPDATE
+  MOOD_REMINDER
+  HABIT_REMINDER
+}
+
+model Notification {
+  id        String           @id @default(uuid())
+  userId    String
+  type      NotificationType
+  title     String
+  message   String
+  isRead    Boolean          @default(false)
+  relatedId String?
+  createdAt DateTime         @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@index([userId, isRead])     // fast unread count
+  @@index([userId, createdAt])  // fast paginated history
+  @@index([createdAt])          // fast cleanup cron
+}
+```
+
+## How Notifications Are Created
+
+`createNotification()` in `notification.service.ts` is the single utility all modules call. It is **fire-and-forget safe** — it catches all errors internally and never propagates them. A notification DB failure cannot break habit completion, mood logging, or any other primary operation.
+
+Current triggers wired up:
+
+| Event                      | Called from                            | Notification type  |
+| -------------------------- | -------------------------------------- | ------------------ |
+| Habit streak milestone hit | `habit.service.ts` → `completeHabit()` | `STREAK_MILESTONE` |
+| Weekly digest sent         | `weekly.digest.cron.ts`                | `WEEKLY_SUMMARY`   |
+
+Planned triggers (added as each phase ships):
+
+| Event                        | Phase   | Notification type      |
+| ---------------------------- | ------- | ---------------------- |
+| Burnout risk level changes   | Phase 3 | `BURNOUT_RISK_CHANGED` |
+| Badge earned                 | Phase 4 | `BADGE_EARNED`         |
+| Challenge joined / completed | Phase 4 | `CHALLENGE_UPDATE`     |
 
 ---
 
@@ -1590,56 +1807,61 @@ Server running on port 5000
 
 ## ✅ Completed
 
-| Feature                                      | Status      |
-| -------------------------------------------- | ----------- |
-| Authentication (Register / Login)            | ✅ Complete |
-| Email Verification (OTP flow)                | ✅ Complete |
-| Resend Verification OTP                      | ✅ Complete |
-| Refresh Token + Token Rotation               | ✅ Complete |
-| Refresh Token Reuse Detection                | ✅ Complete |
-| Forgot Password / Reset Password             | ✅ Complete |
-| GET /me — User Profile Endpoint              | ✅ Complete |
-| Tiered Auth Rate Limiting                    | ✅ Complete |
-| Protected Routes (JWT middleware)            | ✅ Complete |
-| Mood CRUD (Create, Read, Update, Delete)     | ✅ Complete |
-| Mood Pagination + Date Filtering             | ✅ Complete |
-| Mood Entry Hydration (journal + tags)        | ✅ Complete |
-| Mood Journal Cross-store Sync (PG + Mongo)   | ✅ Complete |
-| Mood Context Tags                            | ✅ Complete |
-| Mood Analytics Engine                        | ✅ Complete |
-| Mood Logging Streak                          | ✅ Complete |
-| Mood Heatmap (GitHub-style)                  | ✅ Complete |
-| Monthly Mood Calendar Summary                | ✅ Complete |
-| Day-of-Week + Time-of-Day Pattern Insights   | ✅ Complete |
-| Weekly Trend Analysis (ISO 8601)             | ✅ Complete |
-| Rolling 7-Day Average                        | ✅ Complete |
-| Burnout Risk Scoring                         | ✅ Complete |
-| Swagger Documentation                        | ✅ Complete |
-| Hybrid DB Architecture (PG + Mongo)          | ✅ Complete |
-| Habit CRUD (Create, Read, Update)            | ✅ Complete |
-| Habit Soft Delete + Restore                  | ✅ Complete |
-| Habit Duplicate Prevention                   | ✅ Complete |
-| Habit Categories, Color, Icon                | ✅ Complete |
-| Habit Reordering (Drag & Drop, Atomic TX)    | ✅ Complete |
-| Habit Completion + Undo                      | ✅ Complete |
-| Habit Streak Engine (DST-safe)               | ✅ Complete |
-| Streak Milestone Detection                   | ✅ Complete |
-| Habit Analytics + Consistency Score          | ✅ Complete |
-| Best Day of Week Insight                     | ✅ Complete |
-| Monthly Habit Calendar Summary               | ✅ Complete |
-| GitHub-style Habit Heatmap                   | ✅ Complete |
-| Paginated Habit Log History                  | ✅ Complete |
-| Habit Reminder Settings                      | ✅ Complete |
-| targetPerWeek Goal Support                   | ✅ Complete |
-| Global Error Handler (Zod + App + Unknown)   | ✅ Complete |
-| Reminder Cron Job (node-cron)                | ✅ Complete |
-| Structured Logger                            | ✅ Complete |
-| Gmail SMTP Email Delivery                    | ✅ Complete |
-| AI-powered Insights (Groq)                   | ✅ Complete |
-| SHA-256 Hash-based AI Cache                  | ✅ Complete |
-| Subscription Plans (Free / Pro / Enterprise) | ✅ Complete |
-| Usage Limits Middleware (planLimiter)        | ✅ Complete |
-| Razorpay Payment Integration                 | ✅ Complete |
+| Feature                                               | Status      |
+| ----------------------------------------------------- | ----------- |
+| Authentication (Register / Login)                     | ✅ Complete |
+| Email Verification (OTP flow)                         | ✅ Complete |
+| Resend Verification OTP                               | ✅ Complete |
+| Refresh Token + Token Rotation                        | ✅ Complete |
+| Refresh Token Reuse Detection                         | ✅ Complete |
+| Forgot Password / Reset Password                      | ✅ Complete |
+| GET /me — User Profile Endpoint                       | ✅ Complete |
+| Tiered Auth Rate Limiting                             | ✅ Complete |
+| Protected Routes (JWT middleware)                     | ✅ Complete |
+| Mood CRUD (Create, Read, Update, Delete)              | ✅ Complete |
+| Mood Pagination + Date Filtering                      | ✅ Complete |
+| Mood Entry Hydration (journal + tags)                 | ✅ Complete |
+| Mood Journal Cross-store Sync (PG + Mongo)            | ✅ Complete |
+| Mood Context Tags                                     | ✅ Complete |
+| Mood Analytics Engine                                 | ✅ Complete |
+| Mood Logging Streak                                   | ✅ Complete |
+| Mood Heatmap (GitHub-style)                           | ✅ Complete |
+| Monthly Mood Calendar Summary                         | ✅ Complete |
+| Day-of-Week + Time-of-Day Pattern Insights            | ✅ Complete |
+| Weekly Trend Analysis (ISO 8601)                      | ✅ Complete |
+| Rolling 7-Day Average                                 | ✅ Complete |
+| Burnout Risk Scoring                                  | ✅ Complete |
+| Swagger Documentation                                 | ✅ Complete |
+| Hybrid DB Architecture (PG + Mongo)                   | ✅ Complete |
+| Habit CRUD (Create, Read, Update)                     | ✅ Complete |
+| Habit Soft Delete + Restore                           | ✅ Complete |
+| Habit Duplicate Prevention                            | ✅ Complete |
+| Habit Categories, Color, Icon                         | ✅ Complete |
+| Habit Reordering (Drag & Drop, Atomic TX)             | ✅ Complete |
+| Habit Completion + Undo                               | ✅ Complete |
+| Habit Streak Engine (DST-safe)                        | ✅ Complete |
+| Streak Milestone Detection                            | ✅ Complete |
+| Habit Analytics + Consistency Score                   | ✅ Complete |
+| Best Day of Week Insight                              | ✅ Complete |
+| Monthly Habit Calendar Summary                        | ✅ Complete |
+| GitHub-style Habit Heatmap                            | ✅ Complete |
+| Paginated Habit Log History                           | ✅ Complete |
+| Habit Reminder Settings                               | ✅ Complete |
+| targetPerWeek Goal Support                            | ✅ Complete |
+| Global Error Handler (Zod + App + Unknown)            | ✅ Complete |
+| Reminder Cron Job (node-cron)                         | ✅ Complete |
+| Mood Check-in Reminder Emails                         | ✅ Complete |
+| Weekly Email Digest (Saturday 8am cron)               | ✅ Complete |
+| In-App Notification System                            | ✅ Complete |
+| User Notification Preferences (PATCH /me/preferences) | ✅ Complete |
+| Notification Cleanup Cron (daily 3am)                 | ✅ Complete |
+| Structured Logger                                     | ✅ Complete |
+| Gmail SMTP Email Delivery                             | ✅ Complete |
+| AI-powered Insights (Groq)                            | ✅ Complete |
+| SHA-256 Hash-based AI Cache                           | ✅ Complete |
+| Subscription Plans (Free / Pro / Enterprise)          | ✅ Complete |
+| Usage Limits Middleware (planLimiter)                 | ✅ Complete |
+| Razorpay Payment Integration                          | ✅ Complete |
 
 ## 🔮 Upcoming — Build Order
 
@@ -1647,9 +1869,6 @@ Server running on port 5000
 
 | #   | Feature                                  | Phase             |
 | --- | ---------------------------------------- | ----------------- |
-| 4   | In-App Notification System               | 🔔 Engagement     |
-| 5   | Weekly Email Digest                      | 🔔 Engagement     |
-| 6   | Mood Check-in Reminders                  | 🔔 Engagement     |
 | 7   | Mood ↔ Habit Correlation Engine          | 📊 Analytics      |
 | 8   | Predictive Mood Forecast                 | 📊 Analytics      |
 | 9   | Personal Records & Milestones Timeline   | 📊 Analytics      |

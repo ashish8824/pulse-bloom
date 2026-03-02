@@ -11,6 +11,7 @@ import {
   meController,
   forgotPasswordController,
   resetPasswordController,
+  updatePreferencesController,
 } from "./auth.controller";
 import { protect } from "../../middlewares/auth.middleware";
 import {
@@ -92,6 +93,37 @@ const router = Router();
  *         password:        { type: string, example: "NewPass@456" }
  *         confirmPassword: { type: string, example: "NewPass@456" }
  *
+ *     UpdatePreferencesRequest:
+ *       type: object
+ *       description: All fields optional — send only what you want to change.
+ *       properties:
+ *         weeklyDigestOn:
+ *           type: boolean
+ *           example: true
+ *           description: Opt in/out of the Saturday 8am weekly email summary.
+ *         moodReminderOn:
+ *           type: boolean
+ *           example: true
+ *           description: Toggle mood check-in reminder. Requires moodReminderTime to be set.
+ *         moodReminderTime:
+ *           type: string
+ *           nullable: true
+ *           example: "08:30"
+ *           description: |
+ *             24-hour HH:MM format. Send null to clear and auto-disable the reminder.
+ *
+ *     PreferencesResponse:
+ *       type: object
+ *       properties:
+ *         message: { type: string, example: "Preferences updated successfully." }
+ *         preferences:
+ *           type: object
+ *           properties:
+ *             id:               { type: string }
+ *             weeklyDigestOn:   { type: boolean }
+ *             moodReminderOn:   { type: boolean }
+ *             moodReminderTime: { type: string, nullable: true, example: "08:30" }
+ *
  *     AuthResponse:
  *       type: object
  *       properties:
@@ -102,9 +134,9 @@ const router = Router();
  *             email:      { type: string }
  *             name:       { type: string }
  *             isVerified: { type: boolean }
- *         accessToken:                    { type: string }
- *         refreshToken:                   { type: string }
- *         accessTokenExpiresInSeconds:    { type: integer, example: 840 }
+ *         accessToken:                 { type: string }
+ *         refreshToken:                { type: string }
+ *         accessTokenExpiresInSeconds: { type: integer, example: 840 }
  *
  *     RegisterResponse:
  *       type: object
@@ -124,12 +156,15 @@ const router = Router();
  *         user:
  *           type: object
  *           properties:
- *             id:         { type: string }
- *             email:      { type: string }
- *             name:       { type: string }
- *             isVerified: { type: boolean }
- *             createdAt:  { type: string, format: date-time }
- *             updatedAt:  { type: string, format: date-time }
+ *             id:               { type: string }
+ *             email:            { type: string }
+ *             name:             { type: string }
+ *             isVerified:       { type: boolean }
+ *             createdAt:        { type: string, format: date-time }
+ *             updatedAt:        { type: string, format: date-time }
+ *             weeklyDigestOn:   { type: boolean }
+ *             moodReminderOn:   { type: boolean }
+ *             moodReminderTime: { type: string, nullable: true }
  *
  *     MessageResponse:
  *       type: object
@@ -165,21 +200,16 @@ const router = Router();
  *       required: true
  *       content:
  *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/RegisterRequest'
+ *           schema: { $ref: '#/components/schemas/RegisterRequest' }
  *     responses:
  *       201:
  *         description: Registered. Verification email sent.
  *         content:
  *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/RegisterResponse'
- *       400:
- *         description: Validation error
- *       409:
- *         description: Email already registered
- *       429:
- *         description: Too many attempts
+ *             schema: { $ref: '#/components/schemas/RegisterResponse' }
+ *       400: { description: Validation error }
+ *       409: { description: Email already registered }
+ *       429: { description: Too many attempts }
  */
 router.post("/register", authLimiter, registerController);
 
@@ -188,25 +218,20 @@ router.post("/register", authLimiter, registerController);
  * /api/auth/verify-email:
  *   post:
  *     summary: Verify email with OTP
- *     description: Confirms OTP, marks user verified, issues access + refresh tokens.
  *     tags: [Auth]
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/VerifyEmailRequest'
+ *           schema: { $ref: '#/components/schemas/VerifyEmailRequest' }
  *     responses:
  *       200:
  *         description: Verified. Tokens issued.
  *         content:
  *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/AuthResponse'
- *       400:
- *         description: Invalid or expired OTP
- *       409:
- *         description: Already verified
+ *             schema: { $ref: '#/components/schemas/AuthResponse' }
+ *       400: { description: Invalid or expired OTP }
+ *       409: { description: Already verified }
  */
 router.post("/verify-email", verifyEmailController);
 
@@ -215,19 +240,16 @@ router.post("/verify-email", verifyEmailController);
  * /api/auth/resend-verification:
  *   post:
  *     summary: Resend verification OTP
- *     description: Sends a fresh OTP. Rate limited to 3 per 15 min. Always returns 200.
+ *     description: Rate limited to 3 per 15 min. Always returns 200.
  *     tags: [Auth]
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/ResendVerificationRequest'
+ *           schema: { $ref: '#/components/schemas/ResendVerificationRequest' }
  *     responses:
- *       200:
- *         description: Always 200 (prevents user enumeration)
- *       429:
- *         description: Too many requests
+ *       200: { description: Always 200 }
+ *       429: { description: Too many requests }
  */
 router.post(
   "/resend-verification",
@@ -240,27 +262,21 @@ router.post(
  * /api/auth/login:
  *   post:
  *     summary: Login user
- *     description: Returns access token (15min) + refresh token (7d). Requires verified email.
  *     tags: [Auth]
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/LoginRequest'
+ *           schema: { $ref: '#/components/schemas/LoginRequest' }
  *     responses:
  *       200:
  *         description: Login successful
  *         content:
  *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/AuthResponse'
- *       401:
- *         description: Invalid credentials
- *       403:
- *         description: Email not verified
- *       429:
- *         description: Too many attempts
+ *             schema: { $ref: '#/components/schemas/AuthResponse' }
+ *       401: { description: Invalid credentials }
+ *       403: { description: Email not verified }
+ *       429: { description: Too many attempts }
  */
 router.post("/login", authLimiter, loginController);
 
@@ -269,23 +285,19 @@ router.post("/login", authLimiter, loginController);
  * /api/auth/refresh-token:
  *   post:
  *     summary: Rotate access + refresh tokens
- *     description: Revokes old refresh token, issues new access + refresh token pair.
  *     tags: [Auth]
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/RefreshTokenRequest'
+ *           schema: { $ref: '#/components/schemas/RefreshTokenRequest' }
  *     responses:
  *       200:
  *         description: New tokens issued
  *         content:
  *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/AuthResponse'
- *       401:
- *         description: Invalid, revoked, or expired refresh token
+ *             schema: { $ref: '#/components/schemas/AuthResponse' }
+ *       401: { description: Invalid, revoked, or expired refresh token }
  */
 router.post("/refresh-token", refreshTokenController);
 
@@ -294,7 +306,6 @@ router.post("/refresh-token", refreshTokenController);
  * /api/auth/logout:
  *   post:
  *     summary: Logout current session
- *     description: Revokes the refresh token for this device. Returns 200 even if already revoked.
  *     tags: [Auth]
  *     security:
  *       - bearerAuth: []
@@ -302,13 +313,10 @@ router.post("/refresh-token", refreshTokenController);
  *       required: true
  *       content:
  *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/LogoutRequest'
+ *           schema: { $ref: '#/components/schemas/LogoutRequest' }
  *     responses:
- *       200:
- *         description: Logged out
- *       401:
- *         description: Missing or invalid access token
+ *       200: { description: Logged out }
+ *       401: { description: Missing or invalid access token }
  */
 router.post("/logout", protect, logoutController);
 
@@ -317,7 +325,9 @@ router.post("/logout", protect, logoutController);
  * /api/auth/me:
  *   get:
  *     summary: Get authenticated user profile
- *     description: Returns fresh user data from DB. Password never included.
+ *     description: |
+ *       Returns the user profile including engagement preferences
+ *       (weeklyDigestOn, moodReminderOn, moodReminderTime).
  *     tags: [Auth]
  *     security:
  *       - bearerAuth: []
@@ -326,12 +336,9 @@ router.post("/logout", protect, logoutController);
  *         description: User profile
  *         content:
  *           application/json:
- *             schema:
- *               $ref: '#/components/schemas/UserProfile'
- *       401:
- *         description: Missing or invalid access token
- *       404:
- *         description: User not found
+ *             schema: { $ref: '#/components/schemas/UserProfile' }
+ *       401: { description: Missing or invalid access token }
+ *       404: { description: User not found }
  */
 router.get("/me", protect, meController);
 
@@ -340,19 +347,16 @@ router.get("/me", protect, meController);
  * /api/auth/forgot-password:
  *   post:
  *     summary: Request password reset email
- *     description: Sends reset link if email is registered. Always returns 200.
+ *     description: Always returns 200 (prevents user enumeration).
  *     tags: [Auth]
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/ForgotPasswordRequest'
+ *           schema: { $ref: '#/components/schemas/ForgotPasswordRequest' }
  *     responses:
- *       200:
- *         description: Always 200 (prevents user enumeration)
- *       429:
- *         description: Too many requests
+ *       200: { description: Always 200 }
+ *       429: { description: Too many requests }
  */
 router.post(
   "/forgot-password",
@@ -365,20 +369,63 @@ router.post(
  * /api/auth/reset-password:
  *   post:
  *     summary: Reset password using token from email
- *     description: Validates token, saves new password, revokes all refresh tokens.
  *     tags: [Auth]
  *     requestBody:
  *       required: true
  *       content:
  *         application/json:
- *           schema:
- *             $ref: '#/components/schemas/ResetPasswordRequest'
+ *           schema: { $ref: '#/components/schemas/ResetPasswordRequest' }
  *     responses:
- *       200:
- *         description: Password reset successful
- *       400:
- *         description: Invalid/expired token or passwords don't match
+ *       200: { description: Password reset successful }
+ *       400: { description: Invalid/expired token or passwords don't match }
  */
 router.post("/reset-password", resetPasswordController);
+
+/**
+ * @swagger
+ * /api/auth/me/preferences:
+ *   patch:
+ *     summary: Update notification and reminder preferences
+ *     description: |
+ *       All fields are optional — send only the ones you want to change.
+ *
+ *       **weeklyDigestOn** — opt in/out of the Saturday 8am weekly email summary.
+ *
+ *       **moodReminderOn + moodReminderTime** — enable/disable a daily mood check-in
+ *       nudge email. Setting `moodReminderOn: true` requires a `moodReminderTime`
+ *       to be set (either in this request or already stored). Send `moodReminderTime: null`
+ *       to clear the time and auto-disable the reminder.
+ *
+ *       Example — enable mood reminder at 8:30am:
+ *       ```json
+ *       { "moodReminderOn": true, "moodReminderTime": "08:30" }
+ *       ```
+ *
+ *       Example — disable weekly digest only:
+ *       ```json
+ *       { "weeklyDigestOn": false }
+ *       ```
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema: { $ref: '#/components/schemas/UpdatePreferencesRequest' }
+ *     responses:
+ *       200:
+ *         description: Preferences updated
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/PreferencesResponse' }
+ *       400:
+ *         description: |
+ *           Validation error — e.g. moodReminderTime is not HH:MM format,
+ *           or tried to enable reminder without a time.
+ *       401:
+ *         description: Missing or invalid access token
+ */
+router.patch("/me/preferences", protect, updatePreferencesController);
 
 export default router;
