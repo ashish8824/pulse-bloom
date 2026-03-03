@@ -102,6 +102,7 @@ pulsebloom-backend/
 │   │   │   │                            #   • generateMoodHeatmap
 │   │   │   │                            #   • getMoodMonthlySummary
 │   │   │   │                            #   • getMoodDailyInsights
+│   │   │   │                            #   • getMoodForecast (#8)
 │   │   │   ├── mood.repository.ts       # DB layer — all Prisma + lean select queries
 │   │   │   ├── mood.routes.ts           # All 13 routes with full Swagger JSDoc
 │   │   │   ├── mood.validation.ts       # Zod schemas:
@@ -146,6 +147,26 @@ pulsebloom-backend/
 │   │   │   │                            #   • getBillingStatus (plan + renewal info)
 │   │   │   │                            #   • cancelSubscription
 │   │   │   └── billing.routes.ts        # All 5 routes with full Swagger JSDoc
+│   │   │
+│   │   ├── analytics/                   # ✅ Cross-module Analytics Module
+│   │   │   ├── analytics.controller.ts  # HTTP layer — correlation + habit matrix
+│   │   │   ├── analytics.service.ts     # Business logic:
+│   │   │   │                            #   • calculateMoodHabitCorrelation (#7)
+│   │   │   │                            #   • calculateHabitMatrix (#10)
+│   │   │   ├── analytics.repository.ts  # DB layer — cross-module Prisma queries
+│   │   │   └── analytics.routes.ts      # GET /correlation, GET /habit-matrix
+│   │   │
+│   │   ├── milestones/                  # ✅ Milestones Module
+│   │   │   ├── milestone.controller.ts  # HTTP layer — GET /api/milestones
+│   │   │   ├── milestone.service.ts     # Business logic:
+│   │   │   │                            #   • createMilestoneIfNew (fire-and-forget)
+│   │   │   │                            #   • awardHabitStreakMilestone
+│   │   │   │                            #   • awardMoodMilestones
+│   │   │   │                            #   • awardBestWeekMilestone
+│   │   │   │                            #   • awardBurnoutRecoveryMilestone
+│   │   │   │                            #   • getMilestones
+│   │   │   ├── milestone.repository.ts  # DB layer — Milestone Prisma queries
+│   │   │   └── milestone.routes.ts      # GET /api/milestones with Swagger JSDoc
 │   │   │
 │   │   ├── community/                   # 🔮 Upcoming
 │   │   └── challenges/                  # 🔮 Upcoming
@@ -664,6 +685,7 @@ It stores structured mood data in **PostgreSQL** and unstructured journal text i
 | `GET`    | `/api/mood/trends/weekly`   | ISO 8601 weekly trend groupings                              |
 | `GET`    | `/api/mood/trends/rolling`  | 7-day rolling average                                        |
 | `GET`    | `/api/mood/burnout-risk`    | Burnout risk score + level                                   |
+| `GET`    | `/api/mood/forecast`        | Predictive mood forecast (`?days=7`, max 14) (#8)            |
 
 ---
 
@@ -1014,6 +1036,56 @@ riskScore = (lowMoodDays × 2) + (max(0, 3.0 − averageMood) × 3) + (volatilit
 
 ---
 
+---
+
+## Predictive Mood Forecast
+
+```
+GET /api/mood/forecast?days=7
+```
+
+Predicts mood scores for the next 1–14 days using three signals combined:
+
+**Formula:** `predictedScore = baseline + dayOfWeekAdjustment + (slope × daysAhead)`
+
+| Signal | Source | Description |
+| ------ | ------ | ----------- |
+| `baseline` | 30-day average | Your rolling mood average over the past 30 days |
+| `dayOfWeekAdjustment` | 90-day day-of-week pattern | How each weekday historically compares to your baseline |
+| `trendContribution` | 14-day linear regression | Recent upward or downward trend, clamped to ±0.15/day |
+
+Final score is clamped to [1.0, 5.0]. The `signals` field breaks down each component so the frontend can explain *why* a day is predicted high or low.
+
+Requires at least 7 mood entries in the last 30 days.
+
+```json
+{
+  "forecast": [
+    {
+      "date": "2026-03-04",
+      "dayOfWeek": "Wednesday",
+      "predictedScore": 4.05,
+      "label": "Good",
+      "signals": {
+        "baseline": 3.60,
+        "dayOfWeekAdjustment": 0.50,
+        "trendContribution": -0.05
+      }
+    }
+  ],
+  "insufficientData": false,
+  "basedOn": {
+    "baselineDays": 30,
+    "baselineAvg": 3.60,
+    "trendSlopePerDay": -0.050,
+    "entriesAnalyzed": 47
+  },
+  "message": "Forecast generated using your 30-day baseline, day-of-week patterns, and recent trend."
+}
+```
+
+---
+
 ## Mood Database Schema
 
 ```prisma
@@ -1046,6 +1118,198 @@ model MoodEntry {
 ```
 
 **Indexes on JournalEntry:** `{ userId: 1 }`, `{ moodEntryId: 1 }` (unique), `{ userId: 1, createdAt: -1 }`
+
+---
+
+# 📊 Analytics Module
+
+Cross-module behavioral analytics — computes correlations across mood and habit data.
+
+## 🗺 Analytics API Reference
+
+| Method | Endpoint                        | Description                                          |
+| ------ | ------------------------------- | ---------------------------------------------------- |
+| `GET`  | `/api/analytics/correlation`    | Mood ↔ habit lift for each active habit (#7)         |
+| `GET`  | `/api/analytics/habit-matrix`   | Co-completion rate for every habit pair (#10)        |
+
+---
+
+## Mood ↔ Habit Correlation
+
+```
+GET /api/analytics/correlation
+Authorization: Bearer <accessToken>
+```
+
+For each active habit, computes average mood on completion days vs skip days over the last 90 days. `lift = completionDayAvg − skipDayAvg`. Sorted by lift descending. Habits with fewer than 3 data points in either group are excluded.
+
+```json
+{
+  "correlations": [
+    {
+      "habitId": "uuid",
+      "habitTitle": "Morning Meditation",
+      "frequency": "daily",
+      "completionDayAvg": 4.2,
+      "skipDayAvg": 2.8,
+      "lift": 1.4,
+      "completionDaysAnalyzed": 18,
+      "skipDaysAnalyzed": 12
+    }
+  ],
+  "analyzedDays": 90,
+  "moodLoggedDays": 47,
+  "message": "Sorted by mood impact. Positive lift = habit days have higher average mood than skip days."
+}
+```
+
+---
+
+## Habit Correlation Matrix
+
+```
+GET /api/analytics/habit-matrix
+Authorization: Bearer <accessToken>
+```
+
+For every pair of active habits, computes the co-completion rate: `(bothDays / eitherDays) × 100`. Uses a union-based denominator so recently-created habits aren't unfairly penalised. Sorted by rate descending. Requires at least 2 active habits.
+
+```json
+{
+  "matrix": [
+    {
+      "habitA": { "id": "uuid-1", "title": "Morning Meditation" },
+      "habitB": { "id": "uuid-2", "title": "Exercise" },
+      "coCompletionRate": 78.57,
+      "coCompletedDays": 22,
+      "eitherCompletedDays": 28,
+      "suggestion": "\"Morning Meditation\" and \"Exercise\" are often completed on the same day. Try intentionally pairing them."
+    }
+  ],
+  "analyzedDays": 90,
+  "totalHabits": 3,
+  "message": "Sorted by co-completion rate. High rate = strong habit stack candidate."
+}
+```
+
+**Suggestion thresholds:**
+
+| Rate  | Label                                              |
+| ----- | -------------------------------------------------- |
+| ≥ 80% | Strong habit stack — consider combining            |
+| ≥ 60% | Often paired — try intentionally stacking          |
+| ≥ 40% | Occasional overlap — possible stack opportunity    |
+| < 40% | Rarely together — independent habits               |
+
+---
+
+# 🏆 Milestones Module
+
+Personal records and behavioral achievement timeline.
+
+## 🗺 Milestones API Reference
+
+| Method | Endpoint          | Description                            |
+| ------ | ----------------- | -------------------------------------- |
+| `GET`  | `/api/milestones` | Full timeline, newest first (#9)       |
+
+---
+
+## Get Milestones
+
+```
+GET /api/milestones
+Authorization: Bearer <accessToken>
+```
+
+Returns all earned milestones grouped into a timeline with enriched metadata (label, description, icon, category). Also returns a summary count by category.
+
+Milestones are awarded automatically as **fire-and-forget side effects** inside `completeHabit()` and `addMood()` — no separate endpoint call needed to trigger them.
+
+```json
+{
+  "timeline": [
+    {
+      "id": "uuid",
+      "type": "HABIT_STREAK_30",
+      "category": "habit",
+      "icon": "🏆",
+      "label": "30-Day Habit Streak",
+      "description": "A full month of \"Morning Meditation\". This is becoming part of who you are.",
+      "habitId": "habit-uuid",
+      "habitTitle": "Morning Meditation",
+      "value": 30,
+      "achievedAt": "2026-02-26T08:30:00.000Z"
+    },
+    {
+      "id": "uuid",
+      "type": "FIRST_MOOD_ENTRY",
+      "category": "mood",
+      "icon": "🌱",
+      "label": "First Mood Entry",
+      "description": "You logged your very first mood. The journey begins!",
+      "habitId": null,
+      "habitTitle": null,
+      "value": 1,
+      "achievedAt": "2026-01-01T09:00:00.000Z"
+    }
+  ],
+  "summary": {
+    "total": 5,
+    "habit": 3,
+    "mood": 1,
+    "achievement": 1
+  }
+}
+```
+
+## Milestone Types
+
+| Type                | Category    | Icon | Trigger                                      |
+| ------------------- | ----------- | ---- | -------------------------------------------- |
+| `FIRST_MOOD_ENTRY`  | mood        | 🌱   | Very first mood entry logged                 |
+| `MOOD_STREAK_7`     | mood        | 🔥   | 7 consecutive days of mood logging           |
+| `MOOD_STREAK_14`    | mood        | 🔥   | 14 consecutive days of mood logging          |
+| `MOOD_STREAK_30`    | mood        | 🏆   | 30 consecutive days of mood logging          |
+| `HABIT_STREAK_7`    | habit       | ⚡   | 7-day habit streak                           |
+| `HABIT_STREAK_14`   | habit       | ⚡   | 14-day habit streak                          |
+| `HABIT_STREAK_21`   | habit       | 🌟   | 21-day habit streak                          |
+| `HABIT_STREAK_30`   | habit       | 🏆   | 30-day habit streak                          |
+| `HABIT_STREAK_60`   | habit       | 🏆   | 60-day habit streak                          |
+| `HABIT_STREAK_90`   | habit       | 💎   | 90-day habit streak                          |
+| `HABIT_STREAK_100`  | habit       | 💎   | 100-day habit streak                         |
+| `HABIT_STREAK_180`  | habit       | 👑   | 180-day habit streak                         |
+| `HABIT_STREAK_365`  | habit       | 👑   | 365-day habit streak                         |
+| `BEST_WEEK_MOOD`    | achievement | ✨   | New personal best weekly mood average        |
+| `BURNOUT_RECOVERY`  | achievement | 🌸   | Burnout risk dropped from High → Low         |
+
+## Milestone Database Schema
+
+```prisma
+enum MilestoneType {
+  FIRST_MOOD_ENTRY
+  HABIT_STREAK_7  HABIT_STREAK_14  HABIT_STREAK_21  HABIT_STREAK_30
+  HABIT_STREAK_60  HABIT_STREAK_90  HABIT_STREAK_100  HABIT_STREAK_180  HABIT_STREAK_365
+  MOOD_STREAK_7  MOOD_STREAK_14  MOOD_STREAK_30
+  BEST_WEEK_MOOD
+  BURNOUT_RECOVERY
+}
+
+model Milestone {
+  id         String        @id @default(uuid())
+  userId     String
+  type       MilestoneType
+  habitId    String?       // null for non-habit milestones
+  value      Float?        // streak count, mood score, etc.
+  achievedAt DateTime      @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, type, habitId])
+  @@index([userId, achievedAt])
+  @@index([userId, type])
+}
+```
 
 ---
 
@@ -1862,6 +2126,10 @@ Server running on port 5000
 | Subscription Plans (Free / Pro / Enterprise)          | ✅ Complete |
 | Usage Limits Middleware (planLimiter)                 | ✅ Complete |
 | Razorpay Payment Integration                          | ✅ Complete |
+| Mood ↔ Habit Correlation Engine                       | ✅ Complete |
+| Predictive Mood Forecast (3-signal model)             | ✅ Complete |
+| Personal Records & Milestones Timeline                | ✅ Complete |
+| Habit Correlation Matrix (co-completion rate)         | ✅ Complete |
 
 ## 🔮 Upcoming — Build Order
 
@@ -1869,10 +2137,10 @@ Server running on port 5000
 
 | #   | Feature                                  | Phase             |
 | --- | ---------------------------------------- | ----------------- |
-| 7   | Mood ↔ Habit Correlation Engine          | 📊 Analytics      |
-| 8   | Predictive Mood Forecast                 | 📊 Analytics      |
-| 9   | Personal Records & Milestones Timeline   | 📊 Analytics      |
-| 10  | Habit Correlation Matrix                 | 📊 Analytics      |
+| 7   | Mood ↔ Habit Correlation Engine          | ✅ Complete       |
+| 8   | Predictive Mood Forecast                 | ✅ Complete       |
+| 9   | Personal Records & Milestones Timeline   | ✅ Complete       |
+| 10  | Habit Correlation Matrix                 | ✅ Complete       |
 | 11  | Achievement Badges                       | 🏆 Gamification   |
 | 12  | Challenge System                         | 🏆 Gamification   |
 | 13  | Anonymous Community Feed                 | 🏆 Gamification   |
@@ -1916,17 +2184,17 @@ This model feeds the WebSocket layer (Phase 7) directly — build the DB layer n
 
 ---
 
-## 📊 Phase 3 — Analytics
+## 📊 Phase 3 — Analytics ✅ Complete
 
-> Pure computation on data you already have. No external dependencies, no new infrastructure.
+> All four analytics features are implemented. Zero new dependencies — pure computation on existing data.
 
-**7. Mood ↔ Habit Correlation Engine** — `GET /api/analytics/correlation`. For each active habit, compute: average mood on days the habit was completed vs days it was skipped. Return sorted by impact descending. Example output: `{ habitTitle: "Morning Meditation", completionDayAvg: 4.2, skipDayAvg: 2.8, lift: +1.4 }`. Deterministic — zero AI cost.
+**7. ✅ Mood ↔ Habit Correlation Engine** — `GET /api/analytics/correlation`. For each active habit, computes average mood on days it was completed vs days it was skipped. Returns sorted by lift (impact) descending. See Analytics Module section for full API docs.
 
-**8. Predictive Mood Forecast** — `GET /api/mood/forecast?days=7`. Uses the rolling average + day-of-week pattern (both already computed) to project the next 7 days. Formula: `baseline (30-day avg) + day-of-week adjustment (from daily insights) + recent trend slope`. Returns `{ date, predictedScore, label }` per day. Entirely local — no external API.
+**8. ✅ Predictive Mood Forecast** — `GET /api/mood/forecast?days=7`. Uses 30-day baseline + day-of-week adjustment + 14-day linear regression trend slope. Scores clamped to [1, 5]. Returns a `signals` breakdown per day so the frontend can explain the prediction. See Mood Module section for full API docs.
 
-**9. Personal Records & Milestones Timeline** — Add a `Milestone` model: `id`, `userId`, `type`, `habitId?`, `value`, `achievedAt`. Types: `FIRST_MOOD_ENTRY`, `HABIT_STREAK_7/14/21/30/60/90/100`, `MOOD_STREAK_7/14/30`, `BEST_WEEK_MOOD`, `BURNOUT_RECOVERY`. Call `createMilestoneIfNew()` from inside `completeHabit()` and `addMood()` after each write. `GET /api/milestones` returns the full timeline.
+**9. ✅ Personal Records & Milestones Timeline** — `GET /api/milestones`. Full timeline of behavioral achievements earned automatically as fire-and-forget side effects inside `completeHabit()` and `addMood()`. 15 milestone types across mood, habit, and achievement categories. See Milestones Module section for full API docs.
 
-**10. Habit Correlation Matrix** — `GET /api/analytics/habit-matrix`. For each pair of active habits, compute the co-completion rate: percentage of days where both were completed when at least one was. Sort pairs by correlation descending. Powers habit stacking suggestions in the UI.
+**10. ✅ Habit Correlation Matrix** — `GET /api/analytics/habit-matrix`. For each pair of active habits, computes co-completion rate using a union-based denominator. Sorted by rate descending with plain-English stacking suggestions. See Analytics Module section for full API docs.
 
 ---
 

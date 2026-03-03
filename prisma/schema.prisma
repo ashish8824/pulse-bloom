@@ -30,20 +30,7 @@ enum SubscriptionStatus {
 }
 
 // ─────────────────────────────────────────────────────────────────
-// NOTIFICATION TYPE ENUM  ← NEW
-//
-// Each value maps to a distinct trigger in the application:
-//
-//   STREAK_MILESTONE     → habit streak hits 7, 14, 21, 30, 60, 90, 100, 180, 365
-//   BURNOUT_RISK_CHANGED → burnout level shifted (Low→Moderate, Moderate→High, etc.)
-//   WEEKLY_SUMMARY       → Saturday digest was sent (in-app record of the email)
-//   BADGE_EARNED         → achievement badge unlocked (Phase 4)
-//   CHALLENGE_UPDATE     → challenge joined / completed (Phase 4)
-//   MOOD_REMINDER        → mood check-in reminder fired (in-app record)
-//   HABIT_REMINDER       → habit reminder fired (in-app record)
-//
-// New types can be added here without touching any other enum —
-// the notification module is generic and type-agnostic.
+// NOTIFICATION TYPE ENUM
 // ─────────────────────────────────────────────────────────────────
 enum NotificationType {
   STREAK_MILESTONE
@@ -53,6 +40,43 @@ enum NotificationType {
   CHALLENGE_UPDATE
   MOOD_REMINDER
   HABIT_REMINDER
+}
+
+// ─────────────────────────────────────────────────────────────────
+// MILESTONE TYPE ENUM  ← NEW
+//
+// Each value maps to a distinct achievement event.
+//
+// Habit streaks:
+//   HABIT_STREAK_7 … HABIT_STREAK_365  → streak hit that day count
+//
+// Mood streaks:
+//   MOOD_STREAK_7 / _14 / _30          → consecutive days of mood logging
+//
+// Special events:
+//   FIRST_MOOD_ENTRY   → first ever mood logged
+//   BEST_WEEK_MOOD     → user's highest weekly average mood ever
+//   BURNOUT_RECOVERY   → burnout risk dropped from High → Low
+//
+// Adding a new milestone type = add the enum value here + add a
+// check in milestone.service.ts. No other files need changing.
+// ─────────────────────────────────────────────────────────────────
+enum MilestoneType {
+  FIRST_MOOD_ENTRY
+  HABIT_STREAK_7
+  HABIT_STREAK_14
+  HABIT_STREAK_21
+  HABIT_STREAK_30
+  HABIT_STREAK_60
+  HABIT_STREAK_90
+  HABIT_STREAK_100
+  HABIT_STREAK_180
+  HABIT_STREAK_365
+  MOOD_STREAK_7
+  MOOD_STREAK_14
+  MOOD_STREAK_30
+  BEST_WEEK_MOOD
+  BURNOUT_RECOVERY
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -84,55 +108,72 @@ model User {
   emailVerifications EmailVerification[]
   passwordResets     PasswordReset[]
   subscription       Subscription?
-  notifications      Notification[]       // ← NEW relation
+  notifications      Notification[]
+  milestones         Milestone[]          // ← NEW
 
   @@index([moodReminderOn, moodReminderTime])
 }
 
 // ─────────────────────────────────────────────────────────────────
-// NOTIFICATION  ← NEW
-//
-// Stores in-app notifications for a user.
-//
-// Design decisions:
-//
-//   isRead: false → appears in the unread badge count
-//          true  → appears in the history list but not the badge
-//
-//   relatedId: optional foreign-key-style pointer to the entity that
-//              triggered this notification. Not a true FK because the
-//              target model varies by type:
-//                STREAK_MILESTONE → habitId
-//                BURNOUT_RISK_CHANGED → null (no single entity)
-//                BADGE_EARNED → badgeId (Phase 4)
-//              Storing it here lets the frontend deep-link to the
-//              relevant screen without a separate lookup.
-//
-//   Indexes:
-//     [userId]             → all list queries filter by userId
-//     [userId, isRead]     → unread count query: WHERE userId=X AND isRead=false
-//     [userId, createdAt]  → paginated history: WHERE userId=X ORDER BY createdAt DESC
-//     [createdAt]          → cleanup cron: DELETE WHERE createdAt < 90 days ago
-//
-// Retention: notifications older than 90 days are deleted by a
-// cleanup cron (runs daily) to keep the table lean.
+// NOTIFICATION
 // ─────────────────────────────────────────────────────────────────
 model Notification {
   id        String           @id @default(uuid())
   userId    String
   type      NotificationType
-  title     String           // short, bold — e.g. "🔥 7-Day Streak!"
-  message   String           // full body — e.g. "You've completed Morning Meditation 7 days in a row."
+  title     String
+  message   String
   isRead    Boolean          @default(false)
-  relatedId String?          // optional: habitId, badgeId, etc. for deep-linking
+  relatedId String?
   createdAt DateTime         @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
-  @@index([userId, isRead])     // fast unread count
-  @@index([userId, createdAt])  // fast paginated history
-  @@index([createdAt])          // fast cleanup cron
+  @@index([userId, isRead])
+  @@index([userId, createdAt])
+  @@index([createdAt])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// MILESTONE  ← NEW
+//
+// Stores achievement milestones earned by a user over time.
+// Displayed as a chronological timeline on GET /api/milestones.
+//
+// Design decisions:
+//
+//   habitId: optional — only set for habit-specific milestones
+//            (e.g. HABIT_STREAK_30 links back to the habit).
+//            Mood and account milestones leave this null.
+//
+//   value: optional numeric context — e.g. for BEST_WEEK_MOOD
+//          stores the actual avg score so the timeline can display
+//          "Your best week: avg 4.8" without a join.
+//
+//   @@unique([userId, type, habitId]):
+//     Prevents the same milestone from being awarded twice for the
+//     same habit. For mood/account milestones (habitId = null),
+//     Postgres treats NULL as distinct — so FIRST_MOOD_ENTRY can
+//     only be awarded once (one row per userId + type + null).
+//
+//   Indexes:
+//     [userId, achievedAt] → timeline query sorted newest first
+//     [userId, type]       → fast "already awarded?" idempotency check
+// ─────────────────────────────────────────────────────────────────
+model Milestone {
+  id         String        @id @default(uuid())
+  userId     String
+  type       MilestoneType
+  habitId    String?       // null for mood / account milestones
+  value      Float?        // optional numeric context (e.g. best week avg score)
+  achievedAt DateTime      @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, type, habitId])
+  @@index([userId, achievedAt])
+  @@index([userId, type])
 }
 
 // ─────────────────────────────────────────────────────────────────
@@ -233,8 +274,8 @@ enum HabitCategory {
   health
   fitness
   learning
-  mindfulness
   productivity
+  mindfulness
   custom
 }
 

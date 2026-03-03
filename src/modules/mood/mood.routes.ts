@@ -25,6 +25,7 @@ import {
   getMoodHeatmapController,
   getMoodMonthlySummaryController,
   getMoodDailyInsightsController,
+  getMoodForecastController,
 } from "./mood.controller";
 
 const router = Router();
@@ -765,5 +766,149 @@ router.patch("/:id", protect, updateMoodController);
  *         description: Unauthorized
  */
 router.delete("/:id", protect, deleteMoodController);
+
+/**
+ * @swagger
+ * /api/mood/forecast:
+ *   get:
+ *     summary: Predictive Mood Forecast
+ *     description: >
+ *       Predicts mood scores for the next 1–14 days using three signals:
+ *
+ *       1. **Baseline** — your 30-day rolling average mood
+ *
+ *       2. **Day-of-week adjustment** — how each weekday historically compares
+ *          to your baseline (e.g. your Mondays avg 0.5 below baseline → negative adjustment)
+ *
+ *       3. **Trend slope** — linear regression over your last 14 days of daily averages,
+ *          scaled by days ahead and clamped to ±0.15/day to prevent runaway projections
+ *
+ *       **Formula:** `predictedScore = baseline + dayOfWeekAdjustment + (slope × daysAhead)`
+ *
+ *       Final score is clamped to [1.0, 5.0]. The `signals` field in each forecast
+ *       day breaks down exactly how each component contributed.
+ *
+ *       Requires at least 7 mood entries in the last 30 days.
+ *     tags: [Mood]
+ *     security:
+ *       - bearerAuth: []
+ *     parameters:
+ *       - in: query
+ *         name: days
+ *         schema:
+ *           type: integer
+ *           minimum: 1
+ *           maximum: 14
+ *           default: 7
+ *         description: Number of days to forecast ahead (1–14)
+ *     responses:
+ *       200:
+ *         description: Forecast returned successfully
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 forecast:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       date:
+ *                         type: string
+ *                         format: date
+ *                         example: "2026-03-04"
+ *                       dayOfWeek:
+ *                         type: string
+ *                         example: "Wednesday"
+ *                       predictedScore:
+ *                         type: number
+ *                         format: float
+ *                         example: 3.85
+ *                       label:
+ *                         type: string
+ *                         enum: [Very Low, Low, Moderate, Good, Excellent]
+ *                         example: "Good"
+ *                       signals:
+ *                         type: object
+ *                         description: Breakdown of how each signal contributed to this day's prediction
+ *                         properties:
+ *                           baseline:
+ *                             type: number
+ *                             example: 3.60
+ *                           dayOfWeekAdjustment:
+ *                             type: number
+ *                             example: 0.40
+ *                           trendContribution:
+ *                             type: number
+ *                             example: -0.15
+ *                 insufficientData:
+ *                   type: boolean
+ *                   example: false
+ *                 basedOn:
+ *                   type: object
+ *                   properties:
+ *                     baselineDays:
+ *                       type: integer
+ *                       example: 30
+ *                     baselineAvg:
+ *                       type: number
+ *                       example: 3.60
+ *                     trendSlopePerDay:
+ *                       type: number
+ *                       example: -0.025
+ *                     entriesAnalyzed:
+ *                       type: integer
+ *                       example: 47
+ *                 message:
+ *                   type: string
+ *             examples:
+ *               withForecast:
+ *                 summary: Successful 3-day forecast
+ *                 value:
+ *                   forecast:
+ *                     - date: "2026-03-04"
+ *                       dayOfWeek: "Wednesday"
+ *                       predictedScore: 4.05
+ *                       label: "Good"
+ *                       signals:
+ *                         baseline: 3.60
+ *                         dayOfWeekAdjustment: 0.50
+ *                         trendContribution: -0.05
+ *                     - date: "2026-03-05"
+ *                       dayOfWeek: "Thursday"
+ *                       predictedScore: 3.75
+ *                       label: "Good"
+ *                       signals:
+ *                         baseline: 3.60
+ *                         dayOfWeekAdjustment: 0.25
+ *                         trendContribution: -0.10
+ *                     - date: "2026-03-06"
+ *                       dayOfWeek: "Friday"
+ *                       predictedScore: 3.35
+ *                       label: "Moderate"
+ *                       signals:
+ *                         baseline: 3.60
+ *                         dayOfWeekAdjustment: -0.10
+ *                         trendContribution: -0.15
+ *                   insufficientData: false
+ *                   basedOn:
+ *                     baselineDays: 30
+ *                     baselineAvg: 3.60
+ *                     trendSlopePerDay: -0.050
+ *                     entriesAnalyzed: 47
+ *                   message: "Forecast generated using your 30-day baseline, day-of-week patterns, and recent trend."
+ *               insufficientData:
+ *                 summary: Not enough data yet
+ *                 value:
+ *                   forecast: []
+ *                   insufficientData: true
+ *                   message: "At least 7 mood entries in the last 30 days are needed to generate a forecast."
+ *       400:
+ *         description: Invalid days parameter
+ *       401:
+ *         description: Missing or invalid access token
+ */
+router.get("/forecast", protect, getMoodForecastController);
 
 export default router;

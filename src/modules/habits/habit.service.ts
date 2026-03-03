@@ -31,6 +31,7 @@ import {
   createNotification,
   buildStreakMilestoneNotification,
 } from "../notifications/notification.service";
+import { checkAndAwardHabitStreakMilestone } from "../milestones/milestone.service";
 
 // ─────────────────────────────────────────────────────────────────
 // CONSTANTS
@@ -260,8 +261,14 @@ export const completeHabit = async (
         type: "STREAK_MILESTONE",
         title,
         message,
-        relatedId: habitId, // frontend uses this to deep-link to the habit
+        relatedId: habitId,
       }).catch(() => {});
+
+      checkAndAwardHabitStreakMilestone(userId, habitId, currentStreak).catch(
+        () => {},
+      );
+      // ↑ Fire-and-forget — same pattern as createNotification above.
+      //   A milestone DB failure must NEVER fail the habit completion response.
     }
 
     return {

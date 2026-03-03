@@ -12,6 +12,7 @@ import {
 } from "./mood.repository";
 import { JournalModel } from "./mood.mongo";
 import { CreateMoodInput, UpdateMoodInput } from "./mood.validation";
+import { checkAndAwardMoodMilestones } from "../milestones/milestone.service";
 
 // ─────────────────────────────────────────────────────────────────
 // MOOD SERVICE — Business Logic Layer
@@ -122,6 +123,15 @@ export const addMood = async (input: CreateMoodInput, userId: string) => {
   if (journalId) {
     await JournalModel.findByIdAndUpdate(journalId, { moodEntryId: mood.id });
   }
+  // Fire-and-forget milestone checks — must not block the mood response
+  // currentMoodStreak is computed lazily inside checkAndAwardMoodMilestones
+  // We need the streak to check MOOD_STREAK milestones.
+  // Import calculateMoodStreak from this same file and call it here:
+  calculateMoodStreak(userId)
+    .then(({ currentStreak }) =>
+      checkAndAwardMoodMilestones(userId, currentStreak),
+    )
+    .catch(() => {}); // swallow all errors — secondary side effect
 
   return mood;
 };
@@ -810,5 +820,194 @@ export const getMoodDailyInsights = async (
       mostActiveTime: mostActiveTime.timeOfDay,
       insight: `You feel best during ${bestTime.timeOfDay} (avg ${bestTime.averageMood}).`,
     },
+  };
+};
+
+/**
+ * Predict mood scores for the next N days (max 14).
+ *
+ * Formula (per README spec):
+ *   predictedScore = baseline + dayOfWeekAdjustment + trendSlope
+ *
+ *   baseline          = 30-day rolling average mood
+ *   dayOfWeekAdjustment = (avg mood on that weekday) - baseline
+ *                         (positive = that weekday tends to be better than average)
+ *   trendSlope        = linear regression slope over the last 14 days,
+ *                       scaled by days-ahead to project the trend forward
+ *                       (clamped so it can't dominate the forecast)
+ *
+ * Final score is clamped to [1, 5] — mood scale boundaries.
+ *
+ * Minimum data requirement: 7 entries (matches AI insights gate from README).
+ */
+export const getMoodForecast = async (userId: string, days: number) => {
+  // ── Fetch data for both signals in parallel ────────────────────
+  const thirtyDaysAgo = new Date();
+  thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
+  const thirtyDaysAgoStr = thirtyDaysAgo.toISOString().split("T")[0];
+
+  const [allScoreRows, recentScoreRows] = await Promise.all([
+    // Last 90 days for day-of-week pattern (more signal, more reliable)
+    getMoodScoresWithTimestamp(userId),
+    // Last 30 days for baseline + trend
+    getMoodScores(userId, thirtyDaysAgoStr),
+  ]);
+
+  // ── Minimum data guard ─────────────────────────────────────────
+  if (recentScoreRows.length < 7) {
+    return {
+      forecast: [],
+      insufficientData: true,
+      message:
+        "At least 7 mood entries in the last 30 days are needed to generate a forecast.",
+    };
+  }
+
+  // ── Signal 1: Baseline (30-day simple average) ─────────────────
+  const baseline =
+    recentScoreRows.reduce((sum, r) => sum + r.moodScore, 0) /
+    recentScoreRows.length;
+
+  // ── Signal 2: Day-of-week adjustment ──────────────────────────
+  // Average mood per weekday (0=Sun … 6=Sat) over the last 90 days
+  const dayTotals: Record<number, { sum: number; count: number }> = {};
+  for (const row of allScoreRows) {
+    const dow = new Date(row.createdAt).getUTCDay();
+    if (!dayTotals[dow]) dayTotals[dow] = { sum: 0, count: 0 };
+    dayTotals[dow].sum += row.moodScore;
+    dayTotals[dow].count += 1;
+  }
+
+  // adjustment = (weekday avg) - baseline
+  // Positive → that weekday is historically better than average
+  // If we have no data for a weekday, adjustment defaults to 0
+  const dayAdjustment: Record<number, number> = {};
+  for (let dow = 0; dow <= 6; dow++) {
+    if (dayTotals[dow] && dayTotals[dow].count > 0) {
+      const dayAvg = dayTotals[dow].sum / dayTotals[dow].count;
+      dayAdjustment[dow] = dayAvg - baseline;
+    } else {
+      dayAdjustment[dow] = 0;
+    }
+  }
+
+  // ── Signal 3: Recent trend slope (linear regression, last 14 days) ──
+  // Group into daily averages first (same day can have multiple entries)
+  const dailyAvgMap = new Map<string, { sum: number; count: number }>();
+  for (const row of recentScoreRows) {
+    const dateStr = row.createdAt.toISOString().split("T")[0];
+    if (!dailyAvgMap.has(dateStr))
+      dailyAvgMap.set(dateStr, { sum: 0, count: 0 });
+    const entry = dailyAvgMap.get(dateStr)!;
+    entry.sum += row.moodScore;
+    entry.count += 1;
+  }
+
+  const sortedDailyEntries = Array.from(dailyAvgMap.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .slice(-14) // only last 14 days for trend
+    .map(([date, { sum, count }], idx) => ({
+      x: idx, // x = day index (0, 1, 2 …)
+      y: sum / count, // y = daily avg mood
+    }));
+
+  // Simple linear regression: slope = (n·Σxy - Σx·Σy) / (n·Σx² - (Σx)²)
+  let slope = 0;
+  if (sortedDailyEntries.length >= 3) {
+    const n = sortedDailyEntries.length;
+    const sumX = sortedDailyEntries.reduce((s, p) => s + p.x, 0);
+    const sumY = sortedDailyEntries.reduce((s, p) => s + p.y, 0);
+    const sumXY = sortedDailyEntries.reduce((s, p) => s + p.x * p.y, 0);
+    const sumX2 = sortedDailyEntries.reduce((s, p) => s + p.x * p.x, 0);
+    const denom = n * sumX2 - sumX * sumX;
+    slope = denom !== 0 ? (n * sumXY - sumX * sumY) / denom : 0;
+
+    // Clamp slope: don't let trend overwhelm baseline + day-of-week signal.
+    // Max trend contribution = ±0.15 per day ahead.
+    // Without this, a bad week could forecast score 0 by day 7.
+    slope = Math.max(-0.15, Math.min(0.15, slope));
+  }
+
+  // ── Build forecast array ───────────────────────────────────────
+  const DAY_NAMES = [
+    "Sunday",
+    "Monday",
+    "Tuesday",
+    "Wednesday",
+    "Thursday",
+    "Friday",
+    "Saturday",
+  ];
+
+  const MOOD_LABELS: Record<number, string> = {
+    1: "Very Low",
+    2: "Low",
+    3: "Moderate",
+    4: "Good",
+    5: "Excellent",
+  };
+
+  const getMoodLabel = (score: number): string => {
+    const rounded = Math.round(score);
+    return MOOD_LABELS[Math.max(1, Math.min(5, rounded))] ?? "Moderate";
+  };
+
+  const forecast: {
+    date: string;
+    dayOfWeek: string;
+    predictedScore: number;
+    label: string;
+    signals: {
+      baseline: number;
+      dayOfWeekAdjustment: number;
+      trendContribution: number;
+    };
+  }[] = [];
+
+  const today = new Date();
+
+  for (let i = 1; i <= days; i++) {
+    const forecastDate = new Date(today);
+    forecastDate.setUTCDate(today.getUTCDate() + i);
+    forecastDate.setUTCHours(0, 0, 0, 0);
+
+    const dateStr = forecastDate.toISOString().split("T")[0];
+    const dow = forecastDate.getUTCDay();
+    const adjustment = dayAdjustment[dow] ?? 0;
+
+    // Trend scales with how far ahead we're projecting.
+    // Day 1 forecast uses 1 × slope, day 7 uses 7 × slope.
+    const trendContribution = parseFloat((slope * i).toFixed(2));
+
+    const rawScore = baseline + adjustment + trendContribution;
+
+    // Hard clamp to [1.0, 5.0] — mood scale is bounded
+    const predictedScore = parseFloat(
+      Math.max(1.0, Math.min(5.0, rawScore)).toFixed(2),
+    );
+
+    forecast.push({
+      date: dateStr,
+      dayOfWeek: DAY_NAMES[dow],
+      predictedScore,
+      label: getMoodLabel(predictedScore),
+      signals: {
+        baseline: parseFloat(baseline.toFixed(2)),
+        dayOfWeekAdjustment: parseFloat(adjustment.toFixed(2)),
+        trendContribution,
+      },
+    });
+  }
+
+  return {
+    forecast,
+    insufficientData: false,
+    basedOn: {
+      baselineDays: 30,
+      baselineAvg: parseFloat(baseline.toFixed(2)),
+      trendSlopePerDay: parseFloat(slope.toFixed(3)),
+      entriesAnalyzed: recentScoreRows.length,
+    },
+    message: `Forecast generated using your 30-day baseline, day-of-week patterns, and recent trend.`,
   };
 };

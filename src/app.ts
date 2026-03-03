@@ -12,7 +12,9 @@ import authRoutes from "./modules/auth/auth.routes";
 import moodRoutes from "./modules/mood/mood.routes";
 import habitRoutes from "./modules/habits/habit.routes";
 import billingRoutes from "./modules/billing/billing.routes";
-import notificationRoutes from "./modules/notifications/notification.routes"; // ← NEW
+import notificationRoutes from "./modules/notifications/notification.routes";
+import analyticsRoutes from "./modules/analytics/analytics.routes";
+import milestoneRoutes from "./modules/milestones/milestone.routes";
 
 const app = express();
 
@@ -55,7 +57,9 @@ app.use("/api/mood", moodRoutes);
 app.use("/api/habits", habitRoutes);
 app.use("/api/ai", require("./modules/ai/ai.routes").default);
 app.use("/api/billing", billingRoutes);
-app.use("/api/notifications", notificationRoutes); // ← NEW
+app.use("/api/notifications", notificationRoutes);
+app.use("/api/analytics", analyticsRoutes);
+app.use("/api/milestones", milestoneRoutes);
 
 // ─────────────────────────────────────────────────────────────────
 // GLOBAL ERROR HANDLER — must always be the LAST middleware

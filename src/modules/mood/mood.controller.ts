@@ -20,6 +20,7 @@ import {
   generateMoodHeatmap,
   getMoodMonthlySummary,
   getMoodDailyInsights,
+  getMoodForecast,
 } from "./mood.service";
 
 // ─────────────────────────────────────────────────────────────────
@@ -248,6 +249,33 @@ export const getMoodDailyInsightsController = async (
   try {
     const { startDate, endDate } = moodQuerySchema.parse(req.query);
     const result = await getMoodDailyInsights(req.userId!, startDate, endDate);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * GET /api/mood/forecast?days=7
+ * Predict mood scores for the next N days (1–14).
+ */
+export const getMoodForecastController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const rawDays = req.query.days;
+    const days = rawDays ? Number(rawDays) : 7;
+
+    if (!Number.isInteger(days) || days < 1 || days > 14) {
+      res
+        .status(400)
+        .json({ error: "'days' must be an integer between 1 and 14" });
+      return;
+    }
+
+    const result = await getMoodForecast(req.userId!, days);
     res.json(result);
   } catch (error) {
     next(error);
