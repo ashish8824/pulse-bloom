@@ -4,7 +4,7 @@
 
 PulseBloom is a **production-grade, AI-ready behavioral analytics backend** designed for high-performance professionals managing stress, productivity, and emotional well-being.
 
-This backend powers a modern SaaS-style platform capable of mood tracking, habit building, statistical analytics, trend detection, burnout risk modeling, and behavioral intelligence.
+This backend powers a modern SaaS-style platform capable of mood tracking, habit building, statistical analytics, trend detection, burnout risk modeling, behavioral intelligence, gamification, and anonymous community sharing.
 
 Built with scalable architecture, advanced backend logic, and production-level engineering standards.
 
@@ -32,6 +32,9 @@ Instead of basic CRUD tracking, it provides:
 - ⏰ Automated Habit Reminder Emails (node-cron + Gmail SMTP)
 - 🤖 AI-powered Behavioural Insights (Groq)
 - 💳 Subscription Billing — Razorpay integration with plan gating (Free / Pro / Enterprise)
+- 🏆 Achievement Badge System — 6 badges awarded automatically as behavioral side effects
+- 🎯 Challenge System — create, join, and track time-boxed habit goals with leaderboards
+- 💬 Anonymous Community Feed — anonymous milestone and reflection sharing with upvotes
 
 This is not a tutorial backend.
 This is a **SaaS-ready behavioral analytics engine**.
@@ -61,138 +64,118 @@ pulsebloom-backend/
 │
 ├── src/
 │   │
-│   ├── config/                          # Global configuration
-│   │   ├── db.ts                        # Prisma client + PostgreSQL connection pool (pg adapter)
-│   │   ├── mongo.ts                     # MongoDB connection via Mongoose
-│   │   ├── env.ts                       # Environment variable loading + validation (dotenv)
-│   │   └── swagger.ts                   # OpenAPI 3.0 spec config (swagger-jsdoc)
+│   ├── config/                              # Global configuration
+│   │   ├── db.ts                            # Prisma client + PostgreSQL connection pool (pg adapter)
+│   │   ├── mongo.ts                         # MongoDB connection via Mongoose
+│   │   ├── env.ts                           # Environment variable loading + validation (dotenv)
+│   │   └── swagger.ts                       # OpenAPI 3.0 spec config (swagger-jsdoc)
 │   │
-│   ├── modules/                         # Feature-based modules (Clean Architecture)
+│   ├── modules/                             # Feature-based modules (Clean Architecture)
 │   │   │
-│   │   ├── auth/                        # ✅ Authentication Module
-│   │   │   ├── auth.controller.ts       # HTTP layer — all 10 auth endpoints
-│   │   │   ├── auth.service.ts          # Business logic:
-│   │   │   │                            #   • register (creates user, sends OTP)
-│   │   │   │                            #   • verifyEmail (validates OTP, issues tokens)
-│   │   │   │                            #   • resendVerification (rate-limited OTP resend)
-│   │   │   │                            #   • login (validates credentials, issues tokens)
-│   │   │   │                            #   • refreshToken (rotation + reuse detection)
-│   │   │   │                            #   • logout (revokes refresh token)
-│   │   │   │                            #   • getProfile
-│   │   │   │                            #   • forgotPassword (sends reset link)
-│   │   │   │                            #   • resetPassword (validates token, revokes sessions)
-│   │   │   │                            #   • updatePreferences (mood reminder + weekly digest)
-│   │   │   ├── auth.repository.ts       # DB layer — User + RefreshToken + OTP + preferences queries
-│   │   │   ├── auth.routes.ts           # All 10 routes with Swagger JSDoc + tiered rate limiting
-│   │   │   └── auth.validation.ts       # Zod schemas — register, login, verify, reset, preferences
-|   |   |
-│   │   ├── mood/                        # ✅ Mood Tracking + Analytics Module
-│   │   │   ├── mood.controller.ts       # HTTP layer — all 13 mood endpoints
-│   │   │   ├── mood.service.ts          # Business logic:
-│   │   │   │                            #   • addMood (Postgres + Mongo dual-write)
-│   │   │   │                            #   • getMoodById (journal hydration)
-│   │   │   │                            #   • updateMood (true PATCH + journal sync)
-│   │   │   │                            #   • deleteMood (cross-store cleanup)
-│   │   │   │                            #   • fetchMoods (paginated)
-│   │   │   │                            #   • calculateMoodAnalytics
-│   │   │   │                            #   • calculateWeeklyTrend (ISO 8601 corrected)
-│   │   │   │                            #   • calculateRollingAverage
-│   │   │   │                            #   • calculateBurnoutRisk
-│   │   │   │                            #   • calculateMoodStreak
-│   │   │   │                            #   • generateMoodHeatmap
-│   │   │   │                            #   • getMoodMonthlySummary
-│   │   │   │                            #   • getMoodDailyInsights
-│   │   │   │                            #   • getMoodForecast (#8)
-│   │   │   ├── mood.repository.ts       # DB layer — all Prisma + lean select queries
-│   │   │   ├── mood.routes.ts           # All 13 routes with full Swagger JSDoc
-│   │   │   ├── mood.validation.ts       # Zod schemas:
-│   │   │   │                            #   • createMoodSchema
-│   │   │   │                            #   • updateMoodSchema
-│   │   │   │                            #   • moodQuerySchema
-│   │   │   │                            #   • heatmapQuerySchema
-│   │   │   │                            #   • monthlySummaryQuerySchema
-│   │   │   └── mood.mongo.ts            # Mongoose schema — JournalEntry (MongoDB)
+│   │   ├── auth/                            # ✅ Authentication Module
+│   │   │   ├── auth.controller.ts           # HTTP layer — all 10 auth endpoints
+│   │   │   ├── auth.service.ts              # Business logic (register, login, refresh, reset, etc.)
+│   │   │   ├── auth.repository.ts           # DB layer — User + RefreshToken + OTP + preferences queries
+│   │   │   ├── auth.routes.ts               # All 10 routes with Swagger JSDoc + tiered rate limiting
+│   │   │   └── auth.validation.ts           # Zod schemas — register, login, verify, reset, preferences
 │   │   │
-│   │   ├── habits/                      # ✅ Full Habit Engine Module
-│   │   │   ├── habit.controller.ts      # HTTP layer — all 15 habit endpoints
-│   │   │   ├── habit.service.ts         # Business logic:
-│   │   │   │                            #   • createHabit (duplicate guard)
-│   │   │   │                            #   • archiveHabit / restoreHabit (soft-delete)
-│   │   │   │                            #   • completeHabit (period normalization)
-│   │   │   │                            #   • undoLastCompletion
-│   │   │   │                            #   • reorderHabits (atomic transaction)
-│   │   │   │                            #   • calculateHabitStreak (DST-safe)
-│   │   │   │                            #   • calculateHabitAnalytics (consistency score)
-│   │   │   │                            #   • getMonthlyHabitSummary
-│   │   │   │                            #   • generateHabitHeatmap
-│   │   │   │                            #   • fetchPaginatedLogs
-│   │   │   │                            #   • updateReminder
-│   │   │   ├── habit.repository.ts      # DB layer — all Prisma queries (habits + logs)
-│   │   │   ├── habit.routes.ts          # All 15 routes with full Swagger JSDoc annotations
-│   │   │   └── habit.validation.ts      # Zod schemas (5 schemas)
+│   │   ├── mood/                            # ✅ Mood Tracking + Analytics Module
+│   │   │   ├── mood.controller.ts           # HTTP layer — all 14 mood endpoints
+│   │   │   ├── mood.service.ts              # Business logic (addMood, analytics, burnout, forecast…)
+│   │   │   ├── mood.repository.ts           # DB layer — all Prisma + lean select queries
+│   │   │   ├── mood.routes.ts               # All 14 routes with full Swagger JSDoc
+│   │   │   ├── mood.validation.ts           # Zod schemas (5 schemas)
+│   │   │   └── mood.mongo.ts                # Mongoose schema — JournalEntry (MongoDB)
 │   │   │
-│   │   ├── ai/                          # ✅ AI Insights Module
+│   │   ├── habits/                          # ✅ Full Habit Engine Module
+│   │   │   ├── habit.controller.ts          # HTTP layer — all 15 habit endpoints
+│   │   │   ├── habit.service.ts             # Business logic (streak, analytics, heatmap, badges…)
+│   │   │   ├── habit.repository.ts          # DB layer — all Prisma queries (habits + logs)
+│   │   │   ├── habit.routes.ts              # All 15 routes with full Swagger JSDoc annotations
+│   │   │   └── habit.validation.ts          # Zod schemas (5 schemas)
+│   │   │
+│   │   ├── ai/                              # ✅ AI Insights Module
 │   │   │   ├── ai.controller.ts
 │   │   │   ├── ai.service.ts
 │   │   │   ├── ai.repository.ts
 │   │   │   ├── ai.prompt.ts
 │   │   │   └── ai.routes.ts
 │   │   │
-│   │   ├── billing/                     # ✅ Razorpay Billing Module
-│   │   │   ├── billing.controller.ts    # HTTP layer — 5 billing endpoints
-│   │   │   ├── billing.service.ts       # Business logic:
-│   │   │   │                            #   • createOrder (Razorpay order creation)
-│   │   │   │                            #   • verifyPayment (HMAC-SHA256 verification)
-│   │   │   │                            #   • handleWebhook (subscription lifecycle)
-│   │   │   │                            #   • getBillingStatus (plan + renewal info)
-│   │   │   │                            #   • cancelSubscription
-│   │   │   └── billing.routes.ts        # All 5 routes with full Swagger JSDoc
+│   │   ├── billing/                         # ✅ Razorpay Billing Module
+│   │   │   ├── billing.controller.ts        # HTTP layer — 5 billing endpoints
+│   │   │   ├── billing.service.ts           # Business logic (order, verify, webhook, status, cancel)
+│   │   │   └── billing.routes.ts            # All 5 routes with full Swagger JSDoc
 │   │   │
-│   │   ├── analytics/                   # ✅ Cross-module Analytics Module
-│   │   │   ├── analytics.controller.ts  # HTTP layer — correlation + habit matrix
-│   │   │   ├── analytics.service.ts     # Business logic:
-│   │   │   │                            #   • calculateMoodHabitCorrelation (#7)
-│   │   │   │                            #   • calculateHabitMatrix (#10)
-│   │   │   ├── analytics.repository.ts  # DB layer — cross-module Prisma queries
-│   │   │   └── analytics.routes.ts      # GET /correlation, GET /habit-matrix
+│   │   ├── analytics/                       # ✅ Cross-module Analytics Module
+│   │   │   ├── analytics.controller.ts      # HTTP layer — correlation + habit matrix
+│   │   │   ├── analytics.service.ts         # Business logic (correlation #7, matrix #10)
+│   │   │   ├── analytics.repository.ts      # DB layer — cross-module Prisma queries
+│   │   │   └── analytics.routes.ts          # GET /correlation, GET /habit-matrix
 │   │   │
-│   │   ├── milestones/                  # ✅ Milestones Module
-│   │   │   ├── milestone.controller.ts  # HTTP layer — GET /api/milestones
-│   │   │   ├── milestone.service.ts     # Business logic:
-│   │   │   │                            #   • createMilestoneIfNew (fire-and-forget)
-│   │   │   │                            #   • awardHabitStreakMilestone
-│   │   │   │                            #   • awardMoodMilestones
-│   │   │   │                            #   • awardBestWeekMilestone
-│   │   │   │                            #   • awardBurnoutRecoveryMilestone
-│   │   │   │                            #   • getMilestones
-│   │   │   ├── milestone.repository.ts  # DB layer — Milestone Prisma queries
-│   │   │   └── milestone.routes.ts      # GET /api/milestones with Swagger JSDoc
+│   │   ├── milestones/                      # ✅ Milestones Module
+│   │   │   ├── milestone.controller.ts      # HTTP layer — GET /api/milestones
+│   │   │   ├── milestone.service.ts         # Business logic (fire-and-forget awards)
+│   │   │   ├── milestone.repository.ts      # DB layer — Milestone Prisma queries
+│   │   │   └── milestone.routes.ts          # GET /api/milestones with Swagger JSDoc
 │   │   │
-│   │   ├── community/                   # 🔮 Upcoming
-│   │   └── challenges/                  # 🔮 Upcoming
+│   │   ├── badges/                          # ✅ Achievement Badges Module (Phase 4)
+│   │   │   ├── badge.controller.ts          # HTTP layer — GET /api/badges
+│   │   │   ├── badge.service.ts             # Business logic:
+│   │   │   │                                #   • checkAndAwardHabitBadges (IRON_WILL, CENTURION)
+│   │   │   │                                #   • checkAndAwardMoodBadges (FIRST_STEP, WEEK_ONE,
+│   │   │   │                                #     MINDFUL_MONTH, RESILIENT)
+│   │   │   │                                #   • getBadges (earned + locked shelf)
+│   │   │   │                                #   • BADGE_META (centralised icon/label/hint config)
+│   │   │   ├── badge.repository.ts          # DB layer — getBadgesByUser, hasBadge, createBadge
+│   │   │   └── badge.routes.ts              # GET /api/badges with full Swagger JSDoc
+│   │   │
+│   │   ├── challenges/                      # ✅ Challenge System Module (Phase 4)
+│   │   │   ├── challenge.controller.ts      # HTTP layer — 7 challenge endpoints
+│   │   │   ├── challenge.service.ts         # Business logic:
+│   │   │   │                                #   • createChallenge (auto-joins creator, generates joinCode)
+│   │   │   │                                #   • listChallenges (paginated public feed)
+│   │   │   │                                #   • getMyChallenges (created by user, with joinCode)
+│   │   │   │                                #   • getJoinedChallenges (with nested progress object)
+│   │   │   │                                #   • joinChallenge (public by ID / private by joinCode)
+│   │   │   │                                #   • completeChallenge (manual day — free-form only)
+│   │   │   │                                #   • getLeaderboard (ranked, isMe flag)
+│   │   │   │                                #   • advanceChallengeProgressForHabit (auto-advance)
+│   │   │   ├── challenge.repository.ts      # DB layer — Challenge + ChallengeParticipant queries
+│   │   │   ├── challenge.validation.ts      # Zod schemas — createChallengeSchema, joinChallengeSchema
+│   │   │   └── challenge.routes.ts          # 7 routes with full Swagger JSDoc
+│   │   │
+│   │   └── community/                       # ✅ Anonymous Community Feed Module (Phase 4)
+│   │       ├── community.controller.ts      # HTTP layer — 3 community endpoints
+│   │       ├── community.service.ts         # Business logic:
+│   │       │                                #   • createPost (strips identity before save)
+│   │       │                                #   • getFeed (paginated, sort newest/popular, tag filter)
+│   │       │                                #   • toggleUpvote (HMAC-SHA256 deduplication)
+│   │       ├── community.repository.ts      # DB layer — MongoDB CommunityPost queries
+│   │       ├── community.mongo.ts           # Mongoose schema — CommunityPost (MongoDB)
+│   │       └── community.routes.ts          # 3 routes with full Swagger JSDoc (mixed auth pattern)
 │   │
 │   ├── jobs/
-│   │   ├── reminder.cron.ts             # node-cron — runs every minute (habits + mood reminders)
-│   │   ├── weekly.digest.cron.ts        # node-cron — Saturday 8am UTC weekly behavioral digest
-│   │   └── notification.cleanup.cron.ts # node-cron — daily 3am UTC, deletes notifications > 90 days
+│   │   ├── reminder.cron.ts                 # node-cron — runs every minute (habits + mood reminders)
+│   │   ├── weekly.digest.cron.ts            # node-cron — Saturday 8am UTC weekly behavioral digest
+│   │   └── notification.cleanup.cron.ts     # node-cron — daily 3am UTC, deletes notifications > 90 days
 │   │
 │   ├── middlewares/
-│   │   ├── auth.middleware.ts           # JWT verification → attaches req.userId
-│   │   ├── error.middleware.ts          # Global error handler (Zod + App + unknown)
-│   │   ├── rateLimiter.ts               # Tiered rate limiting (global + auth-specific)
-│   │   └── planLimiter.ts               # ✅ Plan enforcement middleware (checkPlanLimit)
+│   │   ├── auth.middleware.ts               # JWT verification → attaches req.userId
+│   │   ├── error.middleware.ts              # Global error handler (Zod + App + unknown)
+│   │   ├── rateLimiter.ts                   # Tiered rate limiting (global + auth-specific)
+│   │   └── planLimiter.ts                   # ✅ Plan enforcement middleware (checkPlanLimit)
 │   │
-│   ├── websocket/                       # 🔮 Upcoming — Socket.io real-time layer
+│   ├── websocket/                           # 🔮 Upcoming — Socket.io real-time layer
 │   │
 │   ├── utils/
-│   │   ├── jwt.ts                       # generateAccessToken, generateRefreshToken, verifyToken
-│   │   ├── date.utils.ts                # normalizeDailyDate, normalizeWeeklyDate
-│   │   ├── logger.ts                    # Structured timestamp logger
-│   │   ├── mailer.ts                    # Nodemailer Gmail SMTP — OTP, reset, reminder emails
+│   │   ├── jwt.ts                           # generateAccessToken, generateRefreshToken, verifyToken
+│   │   ├── date.utils.ts                    # normalizeDailyDate, normalizeWeeklyDate
+│   │   ├── logger.ts                        # Structured timestamp logger
+│   │   ├── mailer.ts                        # Nodemailer Gmail SMTP — OTP, reset, reminder emails
 │   │   └── helpers.ts
 │   │
 │   ├── types/
-│   │   └── express.d.ts                 # Extends Request with req.userId: string
+│   │   └── express.d.ts                     # Extends Request with req.userId: string
 │   │
 │   ├── app.ts
 │   └── server.ts
@@ -201,14 +184,14 @@ pulsebloom-backend/
 │   ├── schema.prisma
 │   └── migrations/
 │
-├── tests/                               # 🔮 Upcoming
+├── tests/                                   # 🔮 Upcoming
 │   ├── unit/
 │   └── integration/
 │
 ├── .env
 ├── .env.example
 ├── .gitignore
-├── docker-compose.yml                   # 🔮 Upcoming
+├── docker-compose.yml                       # 🔮 Upcoming
 ├── tsconfig.json
 ├── package.json
 └── README.md
@@ -475,7 +458,7 @@ All fields are optional — send only the ones you want to change.
 }
 ```
 
-> `GET /api/auth/me` now also returns `weeklyDigestOn`, `moodReminderOn`, and `moodReminderTime` alongside the user profile — no separate call needed to pre-populate the preferences UI.
+> `GET /api/auth/me` also returns `weeklyDigestOn`, `moodReminderOn`, and `moodReminderTime` alongside the user profile — no separate call needed to pre-populate the preferences UI.
 
 ---
 
@@ -520,12 +503,12 @@ Notifications are automatically cleaned up after **90 days** by a daily 3am cron
 | `STREAK_MILESTONE`     | Habit streak hits 7, 14, 21, 30, 60, 90, 100, 180, or 365 days | `habitId`     |
 | `BURNOUT_RISK_CHANGED` | Burnout risk level shifts (e.g. Low → High)                    | —             |
 | `WEEKLY_SUMMARY`       | Saturday 8am digest was generated                              | —             |
-| `BADGE_EARNED`         | Achievement badge unlocked (Phase 4)                           | `badgeId`     |
-| `CHALLENGE_UPDATE`     | Challenge joined or completed (Phase 4)                        | `challengeId` |
+| `BADGE_EARNED`         | Achievement badge unlocked (Phase 4)                           | `badgeType`   |
+| `CHALLENGE_UPDATE`     | Challenge day completed or challenge finished (Phase 4)        | `challengeId` |
 | `MOOD_REMINDER`        | Mood check-in reminder email fired                             | —             |
 | `HABIT_REMINDER`       | Habit reminder email fired                                     | `habitId`     |
 
-> `relatedId` lets the frontend deep-link to the relevant screen (e.g. tap a `STREAK_MILESTONE` notification → navigate to that habit's detail page).
+> `relatedId` lets the frontend deep-link to the relevant screen (e.g. tap a `BADGE_EARNED` notification → navigate to the badge shelf with that badge highlighted).
 
 ## Get Notifications
 
@@ -542,11 +525,11 @@ Authorization: Bearer <accessToken>
     {
       "id": "uuid",
       "userId": "uuid",
-      "type": "STREAK_MILESTONE",
-      "title": "🔥 30-Day Streak!",
-      "message": "You've completed \"Morning Meditation\" 30 days in a row. Keep it up!",
+      "type": "BADGE_EARNED",
+      "title": "💪 Badge Unlocked: Iron Will",
+      "message": "30-day streak on a single habit. This is becoming identity.",
       "isRead": false,
-      "relatedId": "habit-uuid",
+      "relatedId": "IRON_WILL",
       "createdAt": "2026-02-26T08:30:00.000Z"
     }
   ],
@@ -566,8 +549,6 @@ GET /api/notifications/unread-count
 Authorization: Bearer <accessToken>
 ```
 
-Poll this on page load to drive the notification bell badge. Lightweight — returns a single integer, no list data.
-
 ```json
 { "unreadCount": 5 }
 ```
@@ -579,19 +560,7 @@ PATCH /api/notifications/:id/read
 Authorization: Bearer <accessToken>
 ```
 
-Ownership enforced — attempting to mark another user's notification returns `404` (not `403`) to avoid leaking that the ID exists. Idempotent — returns `200` if already read.
-
-```json
-{
-  "notification": {
-    "id": "uuid",
-    "type": "STREAK_MILESTONE",
-    "title": "🔥 30-Day Streak!",
-    "isRead": true,
-    "createdAt": "2026-02-26T08:30:00.000Z"
-  }
-}
-```
+Ownership enforced — attempting to mark another user's notification returns `404` to avoid leaking that the ID exists. Idempotent.
 
 ## Mark All as Read
 
@@ -600,8 +569,6 @@ PATCH /api/notifications/read-all
 Authorization: Bearer <accessToken>
 ```
 
-Bulk marks all unread notifications as read. Returns count of updated rows. Idempotent — returns `{ updated: 0 }` when everything is already read.
-
 ```json
 {
   "message": "5 notifications marked as read.",
@@ -609,56 +576,16 @@ Bulk marks all unread notifications as read. Returns count of updated rows. Idem
 }
 ```
 
-## Notification Database Schema
-
-```prisma
-enum NotificationType {
-  STREAK_MILESTONE
-  BURNOUT_RISK_CHANGED
-  WEEKLY_SUMMARY
-  BADGE_EARNED
-  CHALLENGE_UPDATE
-  MOOD_REMINDER
-  HABIT_REMINDER
-}
-
-model Notification {
-  id        String           @id @default(uuid())
-  userId    String
-  type      NotificationType
-  title     String
-  message   String
-  isRead    Boolean          @default(false)
-  relatedId String?
-  createdAt DateTime         @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([userId, isRead])     // fast unread count
-  @@index([userId, createdAt])  // fast paginated history
-  @@index([createdAt])          // fast cleanup cron
-}
-```
-
 ## How Notifications Are Created
 
-`createNotification()` in `notification.service.ts` is the single utility all modules call. It is **fire-and-forget safe** — it catches all errors internally and never propagates them. A notification DB failure cannot break habit completion, mood logging, or any other primary operation.
-
-Current triggers wired up:
+`createNotification()` in `notification.service.ts` is the single utility all modules call. It is **fire-and-forget safe** — catches all errors internally and never propagates them.
 
 | Event                      | Called from                            | Notification type  |
 | -------------------------- | -------------------------------------- | ------------------ |
 | Habit streak milestone hit | `habit.service.ts` → `completeHabit()` | `STREAK_MILESTONE` |
 | Weekly digest sent         | `weekly.digest.cron.ts`                | `WEEKLY_SUMMARY`   |
-
-Planned triggers (added as each phase ships):
-
-| Event                        | Phase   | Notification type      |
-| ---------------------------- | ------- | ---------------------- |
-| Burnout risk level changes   | Phase 3 | `BURNOUT_RISK_CHANGED` |
-| Badge earned                 | Phase 4 | `BADGE_EARNED`         |
-| Challenge joined / completed | Phase 4 | `CHALLENGE_UPDATE`     |
+| Badge earned               | `badge.service.ts` → `awardBadge()`    | `BADGE_EARNED`     |
+| Challenge day completed    | `challenge.service.ts`                 | `CHALLENGE_UPDATE` |
 
 ---
 
@@ -728,116 +655,10 @@ POST /api/mood
 
 > `journalId` is the MongoDB ObjectId of the linked journal document. `null` if no `journalText` was provided.
 
----
+**Side effects (fire-and-forget, non-blocking):**
 
-## Get Single Mood Entry (Hydrated)
-
-```
-GET /api/mood/:id
-```
-
-Returns the mood entry merged with its journal text and tags from MongoDB.
-
-```json
-{
-  "id": "uuid",
-  "moodScore": 4,
-  "emoji": "😊",
-  "journalId": "65d4fa21bc92b3bcd23e4567",
-  "userId": "uuid",
-  "createdAt": "2026-02-26T08:30:00.000Z",
-  "journal": {
-    "text": "Had a productive deep work session.",
-    "tags": ["work", "exercise"]
-  }
-}
-```
-
-`journal` is `null` if the entry has no linked journal document.
-
----
-
-## Update Mood Entry
-
-```
-PATCH /api/mood/:id
-```
-
-True PATCH semantics — only the fields you send are changed.
-
-```json
-{
-  "moodScore": 3,
-  "journalText": "Actually it was more of a medium day."
-}
-```
-
-**Journal update rules:**
-
-| `journalText` value   | Behaviour                                         |
-| --------------------- | ------------------------------------------------- |
-| `"some updated text"` | Updates the existing journal doc (or creates one) |
-| `null`                | Deletes the linked MongoDB journal document       |
-| _(omitted)_           | Journal is left completely untouched              |
-
----
-
-## Delete Mood Entry
-
-```
-DELETE /api/mood/:id
-```
-
-Permanently deletes the mood entry from PostgreSQL **and** its linked journal document from MongoDB. This action is irreversible.
-
-```json
-{ "message": "Mood entry deleted successfully" }
-```
-
----
-
-## Paginated Mood History
-
-```
-GET /api/mood?page=1&limit=10
-GET /api/mood?startDate=2026-01-01&endDate=2026-01-31
-```
-
-`endDate` is end-of-day inclusive — all entries up to `23:59:59.999` on that date are included.
-
-> **Plan limit:** Free plan users are restricted to the last 30 days of mood history. If `startDate` is older than 30 days, it is silently clamped and a `planLimitApplied` flag is included in the response so the frontend can show an upgrade banner.
-
-```json
-{
-  "data": [{ "id": "uuid", "moodScore": 4, "emoji": "😊" }],
-  "pagination": {
-    "total": 87,
-    "page": 1,
-    "limit": 10,
-    "totalPages": 9
-  }
-}
-```
-
----
-
-## Mood Analytics
-
-```
-GET /api/mood/analytics
-GET /api/mood/analytics?startDate=2026-01-01&endDate=2026-01-31
-```
-
-```json
-{
-  "totalEntries": 20,
-  "averageMood": 3.8,
-  "highestMood": 5,
-  "lowestMood": 1,
-  "mostFrequentMood": 4,
-  "distribution": { "1": 2, "2": 3, "3": 5, "4": 6, "5": 4 }
-}
-```
+- Mood milestone checks (`FIRST_MOOD_ENTRY`, `MOOD_STREAK_7/14/30`, `BEST_WEEK_MOOD`, `BURNOUT_RECOVERY`)
+- Badge checks (`FIRST_STEP`, `WEEK_ONE`, `MINDFUL_MONTH`, `RESILIENT`)
 
 ---
 
@@ -846,8 +667,6 @@ GET /api/mood/analytics?startDate=2026-01-01&endDate=2026-01-31
 ```
 GET /api/mood/streak
 ```
-
-**Algorithm:** The streak anchor is today (or yesterday as a grace period). If you haven't logged yet today but logged yesterday, the streak stays active — you won't lose a 30-day streak at 7am for not having logged yet.
 
 ```json
 {
@@ -859,161 +678,17 @@ GET /api/mood/streak
 
 ---
 
-## Mood Heatmap
-
-```
-GET /api/mood/heatmap?days=365
-```
-
-Returns one entry per calendar day for the requested window (max 730 days / 2 years).
-
-- `averageScore: 0` — no entry logged that day
-- `averageScore: 1–5` — average mood across all entries on that day
-- `count` — number of entries logged on that day
-
-```json
-{
-  "heatmap": [
-    { "date": "2025-02-26", "averageScore": 0, "count": 0 },
-    { "date": "2025-02-27", "averageScore": 4.0, "count": 2 },
-    { "date": "2025-02-28", "averageScore": 3.5, "count": 1 }
-  ],
-  "totalDays": 365,
-  "loggedDays": 87
-}
-```
-
-> Frontend maps `averageScore` to colour intensity — 0 = grey, 1–5 = green scale (or custom theme).
-
----
-
-## Monthly Calendar Summary
-
-```
-GET /api/mood/summary/monthly?month=2026-02
-```
-
-Defaults to the current month if `month` is not provided.
-
-```json
-{
-  "month": "2026-02",
-  "totalEntries": 35,
-  "loggedDays": 22,
-  "averageMood": 3.7,
-  "bestDay": { "date": "2026-02-14", "averageScore": 5.0 },
-  "worstDay": { "date": "2026-02-03", "averageScore": 1.5 },
-  "calendar": [
-    { "date": "2026-02-01", "day": 1, "averageScore": 4.0, "count": 1 },
-    { "date": "2026-02-02", "day": 2, "averageScore": null, "count": 0 },
-    { "date": "2026-02-03", "day": 3, "averageScore": 1.5, "count": 2 }
-  ]
-}
-```
-
-`averageScore: null` means no entry was logged on that day.
-
----
-
-## Daily Insights (Day-of-Week + Time-of-Day Patterns)
-
-```
-GET /api/mood/insights/daily
-GET /api/mood/insights/daily?startDate=2025-12-01&endDate=2026-02-28
-```
-
-Analyses mood entries across two behavioural dimensions. Requires at least 5 entries.
-
-```json
-{
-  "analyzedEntries": 87,
-  "dayOfWeekPattern": {
-    "data": [
-      { "day": "Monday", "averageMood": 2.1, "entries": 14 },
-      { "day": "Wednesday", "averageMood": 4.1, "entries": 15 }
-    ],
-    "bestDay": "Wednesday",
-    "worstDay": "Monday",
-    "mostActiveDay": "Wednesday",
-    "insight": "Your Wednesdays average 4.1 — your best day of the week."
-  },
-  "timeOfDayPattern": {
-    "data": [
-      { "timeOfDay": "Morning (5am–12pm)", "averageMood": 4.2, "entries": 42 },
-      {
-        "timeOfDay": "Afternoon (12pm–5pm)",
-        "averageMood": 3.5,
-        "entries": 21
-      },
-      { "timeOfDay": "Evening (5pm–9pm)", "averageMood": 3.1, "entries": 18 },
-      { "timeOfDay": "Night (9pm–5am)", "averageMood": 2.9, "entries": 6 }
-    ],
-    "bestTime": "Morning (5am–12pm)",
-    "mostActiveTime": "Morning (5am–12pm)",
-    "insight": "You feel best during Morning (5am–12pm) (avg 4.2)."
-  }
-}
-```
-
-**Day-of-week pattern** reveals which weekday has your best/worst average mood. **Time-of-day pattern** buckets entries into Morning / Afternoon / Evening / Night.
-
----
-
-## Weekly Trend Analysis
-
-```
-GET /api/mood/trends/weekly
-```
-
-Groups mood entries by ISO 8601 week (weeks start Monday). Returns weeks in chronological order.
-
-```json
-{
-  "weeklyTrends": [
-    { "week": "2026-W05", "averageMood": 3.6, "entries": 5 },
-    { "week": "2026-W06", "averageMood": 4.1, "entries": 7 }
-  ]
-}
-```
-
----
-
-## Rolling 7-Day Average
-
-```
-GET /api/mood/trends/rolling
-```
-
-```json
-{
-  "rollingAverage": [
-    { "date": "2026-02-10", "averageMood": 3.57 },
-    { "date": "2026-02-11", "averageMood": 3.71 }
-  ]
-}
-```
-
----
-
 ## Burnout Risk Scoring
 
 ```
 GET /api/mood/burnout-risk
 ```
 
-Requires at least 3 entries.
-
 **Formula:**
 
 ```
 riskScore = (lowMoodDays × 2) + (max(0, 3.0 − averageMood) × 3) + (volatility × 1.5)
 ```
-
-| Signal        | Weight | Description                                                                                  |
-| ------------- | ------ | -------------------------------------------------------------------------------------------- |
-| `lowMoodDays` | × 2    | Days where moodScore ≤ 2                                                                     |
-| `moodDeficit` | × 3    | How far the average falls below 3.0 (clamped ≥ 0 so healthy averages don't reduce the score) |
-| `volatility`  | × 1.5  | Range between highest and lowest score                                                       |
 
 | Score | Level    |
 | ----- | -------- |
@@ -1036,27 +711,19 @@ riskScore = (lowMoodDays × 2) + (max(0, 3.0 − averageMood) × 3) + (volatilit
 
 ---
 
----
-
 ## Predictive Mood Forecast
 
 ```
 GET /api/mood/forecast?days=7
 ```
 
-Predicts mood scores for the next 1–14 days using three signals combined:
-
 **Formula:** `predictedScore = baseline + dayOfWeekAdjustment + (slope × daysAhead)`
 
-| Signal | Source | Description |
-| ------ | ------ | ----------- |
-| `baseline` | 30-day average | Your rolling mood average over the past 30 days |
-| `dayOfWeekAdjustment` | 90-day day-of-week pattern | How each weekday historically compares to your baseline |
-| `trendContribution` | 14-day linear regression | Recent upward or downward trend, clamped to ±0.15/day |
-
-Final score is clamped to [1.0, 5.0]. The `signals` field breaks down each component so the frontend can explain *why* a day is predicted high or low.
-
-Requires at least 7 mood entries in the last 30 days.
+| Signal              | Source                     | Description                                |
+| ------------------- | -------------------------- | ------------------------------------------ |
+| `baseline`          | 30-day average             | Rolling mood average over the past 30 days |
+| `dayOfWeekAdjust`   | 90-day day-of-week pattern | How each weekday compares to your baseline |
+| `trendContribution` | 14-day linear regression   | Recent trend clamped to ±0.15/day          |
 
 ```json
 {
@@ -1067,8 +734,8 @@ Requires at least 7 mood entries in the last 30 days.
       "predictedScore": 4.05,
       "label": "Good",
       "signals": {
-        "baseline": 3.60,
-        "dayOfWeekAdjustment": 0.50,
+        "baseline": 3.6,
+        "dayOfWeekAdjustment": 0.5,
         "trendContribution": -0.05
       }
     }
@@ -1076,11 +743,10 @@ Requires at least 7 mood entries in the last 30 days.
   "insufficientData": false,
   "basedOn": {
     "baselineDays": 30,
-    "baselineAvg": 3.60,
-    "trendSlopePerDay": -0.050,
+    "baselineAvg": 3.6,
+    "trendSlopePerDay": -0.05,
     "entriesAnalyzed": 47
-  },
-  "message": "Forecast generated using your 30-day baseline, day-of-week patterns, and recent trend."
+  }
 }
 ```
 
@@ -1093,14 +759,14 @@ model MoodEntry {
   id        String   @id @default(uuid())
   moodScore Int
   emoji     String
-  journalId String?  // MongoDB ObjectId — null if no journal was provided
+  journalId String?
   userId    String
   createdAt DateTime @default(now())
 
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@index([userId])
-  @@index([userId, createdAt])  // critical for all date-range analytics queries
+  @@index([userId, createdAt])
 }
 ```
 
@@ -1117,8 +783,6 @@ model MoodEntry {
 }
 ```
 
-**Indexes on JournalEntry:** `{ userId: 1 }`, `{ moodEntryId: 1 }` (unique), `{ userId: 1, createdAt: -1 }`
-
 ---
 
 # 📊 Analytics Module
@@ -1127,10 +791,10 @@ Cross-module behavioral analytics — computes correlations across mood and habi
 
 ## 🗺 Analytics API Reference
 
-| Method | Endpoint                        | Description                                          |
-| ------ | ------------------------------- | ---------------------------------------------------- |
-| `GET`  | `/api/analytics/correlation`    | Mood ↔ habit lift for each active habit (#7)         |
-| `GET`  | `/api/analytics/habit-matrix`   | Co-completion rate for every habit pair (#10)        |
+| Method | Endpoint                      | Description                                   |
+| ------ | ----------------------------- | --------------------------------------------- |
+| `GET`  | `/api/analytics/correlation`  | Mood ↔ habit lift for each active habit (#7)  |
+| `GET`  | `/api/analytics/habit-matrix` | Co-completion rate for every habit pair (#10) |
 
 ---
 
@@ -1141,7 +805,7 @@ GET /api/analytics/correlation
 Authorization: Bearer <accessToken>
 ```
 
-For each active habit, computes average mood on completion days vs skip days over the last 90 days. `lift = completionDayAvg − skipDayAvg`. Sorted by lift descending. Habits with fewer than 3 data points in either group are excluded.
+For each active habit, computes average mood on completion days vs skip days over the last 90 days. `lift = completionDayAvg − skipDayAvg`. Sorted by lift descending.
 
 ```json
 {
@@ -1158,8 +822,7 @@ For each active habit, computes average mood on completion days vs skip days ove
     }
   ],
   "analyzedDays": 90,
-  "moodLoggedDays": 47,
-  "message": "Sorted by mood impact. Positive lift = habit days have higher average mood than skip days."
+  "moodLoggedDays": 47
 }
 ```
 
@@ -1172,7 +835,7 @@ GET /api/analytics/habit-matrix
 Authorization: Bearer <accessToken>
 ```
 
-For every pair of active habits, computes the co-completion rate: `(bothDays / eitherDays) × 100`. Uses a union-based denominator so recently-created habits aren't unfairly penalised. Sorted by rate descending. Requires at least 2 active habits.
+For every pair of active habits, computes co-completion rate: `(bothDays / eitherDays) × 100`.
 
 ```json
 {
@@ -1187,19 +850,9 @@ For every pair of active habits, computes the co-completion rate: `(bothDays / e
     }
   ],
   "analyzedDays": 90,
-  "totalHabits": 3,
-  "message": "Sorted by co-completion rate. High rate = strong habit stack candidate."
+  "totalHabits": 3
 }
 ```
-
-**Suggestion thresholds:**
-
-| Rate  | Label                                              |
-| ----- | -------------------------------------------------- |
-| ≥ 80% | Strong habit stack — consider combining            |
-| ≥ 60% | Often paired — try intentionally stacking          |
-| ≥ 40% | Occasional overlap — possible stack opportunity    |
-| < 40% | Rarely together — independent habits               |
 
 ---
 
@@ -1209,107 +862,31 @@ Personal records and behavioral achievement timeline.
 
 ## 🗺 Milestones API Reference
 
-| Method | Endpoint          | Description                            |
-| ------ | ----------------- | -------------------------------------- |
-| `GET`  | `/api/milestones` | Full timeline, newest first (#9)       |
+| Method | Endpoint          | Description                      |
+| ------ | ----------------- | -------------------------------- |
+| `GET`  | `/api/milestones` | Full timeline, newest first (#9) |
 
 ---
 
-## Get Milestones
-
-```
-GET /api/milestones
-Authorization: Bearer <accessToken>
-```
-
-Returns all earned milestones grouped into a timeline with enriched metadata (label, description, icon, category). Also returns a summary count by category.
-
-Milestones are awarded automatically as **fire-and-forget side effects** inside `completeHabit()` and `addMood()` — no separate endpoint call needed to trigger them.
-
-```json
-{
-  "timeline": [
-    {
-      "id": "uuid",
-      "type": "HABIT_STREAK_30",
-      "category": "habit",
-      "icon": "🏆",
-      "label": "30-Day Habit Streak",
-      "description": "A full month of \"Morning Meditation\". This is becoming part of who you are.",
-      "habitId": "habit-uuid",
-      "habitTitle": "Morning Meditation",
-      "value": 30,
-      "achievedAt": "2026-02-26T08:30:00.000Z"
-    },
-    {
-      "id": "uuid",
-      "type": "FIRST_MOOD_ENTRY",
-      "category": "mood",
-      "icon": "🌱",
-      "label": "First Mood Entry",
-      "description": "You logged your very first mood. The journey begins!",
-      "habitId": null,
-      "habitTitle": null,
-      "value": 1,
-      "achievedAt": "2026-01-01T09:00:00.000Z"
-    }
-  ],
-  "summary": {
-    "total": 5,
-    "habit": 3,
-    "mood": 1,
-    "achievement": 1
-  }
-}
-```
-
 ## Milestone Types
 
-| Type                | Category    | Icon | Trigger                                      |
-| ------------------- | ----------- | ---- | -------------------------------------------- |
-| `FIRST_MOOD_ENTRY`  | mood        | 🌱   | Very first mood entry logged                 |
-| `MOOD_STREAK_7`     | mood        | 🔥   | 7 consecutive days of mood logging           |
-| `MOOD_STREAK_14`    | mood        | 🔥   | 14 consecutive days of mood logging          |
-| `MOOD_STREAK_30`    | mood        | 🏆   | 30 consecutive days of mood logging          |
-| `HABIT_STREAK_7`    | habit       | ⚡   | 7-day habit streak                           |
-| `HABIT_STREAK_14`   | habit       | ⚡   | 14-day habit streak                          |
-| `HABIT_STREAK_21`   | habit       | 🌟   | 21-day habit streak                          |
-| `HABIT_STREAK_30`   | habit       | 🏆   | 30-day habit streak                          |
-| `HABIT_STREAK_60`   | habit       | 🏆   | 60-day habit streak                          |
-| `HABIT_STREAK_90`   | habit       | 💎   | 90-day habit streak                          |
-| `HABIT_STREAK_100`  | habit       | 💎   | 100-day habit streak                         |
-| `HABIT_STREAK_180`  | habit       | 👑   | 180-day habit streak                         |
-| `HABIT_STREAK_365`  | habit       | 👑   | 365-day habit streak                         |
-| `BEST_WEEK_MOOD`    | achievement | ✨   | New personal best weekly mood average        |
-| `BURNOUT_RECOVERY`  | achievement | 🌸   | Burnout risk dropped from High → Low         |
-
-## Milestone Database Schema
-
-```prisma
-enum MilestoneType {
-  FIRST_MOOD_ENTRY
-  HABIT_STREAK_7  HABIT_STREAK_14  HABIT_STREAK_21  HABIT_STREAK_30
-  HABIT_STREAK_60  HABIT_STREAK_90  HABIT_STREAK_100  HABIT_STREAK_180  HABIT_STREAK_365
-  MOOD_STREAK_7  MOOD_STREAK_14  MOOD_STREAK_30
-  BEST_WEEK_MOOD
-  BURNOUT_RECOVERY
-}
-
-model Milestone {
-  id         String        @id @default(uuid())
-  userId     String
-  type       MilestoneType
-  habitId    String?       // null for non-habit milestones
-  value      Float?        // streak count, mood score, etc.
-  achievedAt DateTime      @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, type, habitId])
-  @@index([userId, achievedAt])
-  @@index([userId, type])
-}
-```
+| Type               | Category    | Icon | Trigger                               |
+| ------------------ | ----------- | ---- | ------------------------------------- |
+| `FIRST_MOOD_ENTRY` | mood        | 🌱   | Very first mood entry logged          |
+| `MOOD_STREAK_7`    | mood        | 🔥   | 7 consecutive days of mood logging    |
+| `MOOD_STREAK_14`   | mood        | 🔥   | 14 consecutive days of mood logging   |
+| `MOOD_STREAK_30`   | mood        | 🏆   | 30 consecutive days of mood logging   |
+| `HABIT_STREAK_7`   | habit       | ⚡   | 7-day habit streak                    |
+| `HABIT_STREAK_14`  | habit       | ⚡   | 14-day habit streak                   |
+| `HABIT_STREAK_21`  | habit       | 🌟   | 21-day habit streak                   |
+| `HABIT_STREAK_30`  | habit       | 🏆   | 30-day habit streak                   |
+| `HABIT_STREAK_60`  | habit       | 🏆   | 60-day habit streak                   |
+| `HABIT_STREAK_90`  | habit       | 💎   | 90-day habit streak                   |
+| `HABIT_STREAK_100` | habit       | 💎   | 100-day habit streak                  |
+| `HABIT_STREAK_180` | habit       | 👑   | 180-day habit streak                  |
+| `HABIT_STREAK_365` | habit       | 👑   | 365-day habit streak                  |
+| `BEST_WEEK_MOOD`   | achievement | ✨   | New personal best weekly mood average |
+| `BURNOUT_RECOVERY` | achievement | 🌸   | Burnout risk dropped from High → Low  |
 
 ---
 
@@ -1339,44 +916,6 @@ The Habits Module is the core of PulseBloom's behavioral intelligence layer.
 
 ---
 
-## Create Habit
-
-```
-POST /api/habits
-```
-
-```json
-{
-  "title": "Morning Meditation",
-  "description": "10 minutes mindfulness before work",
-  "frequency": "daily",
-  "category": "mindfulness",
-  "color": "#7C3AED",
-  "icon": "🧘",
-  "targetPerWeek": 5,
-  "reminderTime": "08:00",
-  "reminderOn": true
-}
-```
-
-**Fields:**
-
-| Field           | Type                | Required | Description                                                              |
-| --------------- | ------------------- | -------- | ------------------------------------------------------------------------ |
-| `title`         | string              | ✅       | 2–100 chars, trimmed, case-insensitive duplicate check                   |
-| `frequency`     | `daily` \| `weekly` | ✅       | Period type                                                              |
-| `description`   | string              | ❌       | Up to 500 chars                                                          |
-| `category`      | enum                | ❌       | `health`, `fitness`, `learning`, `mindfulness`, `productivity`, `custom` |
-| `color`         | string              | ❌       | Hex code like `#FF5733`                                                  |
-| `icon`          | string              | ❌       | Single emoji like `🧘`                                                   |
-| `targetPerWeek` | integer 1–7         | ❌       | Weekly goal — affects completion rate calculation                        |
-| `reminderTime`  | `HH:MM`             | ❌       | 24-hour format — used by cron job for exact-minute matching              |
-| `reminderOn`    | boolean             | ❌       | Toggle reminder on/off without clearing `reminderTime`                   |
-
-> **Plan limit:** Free plan users are limited to **3 active habits**. Attempting to create a 4th habit returns a `403` with an upgrade prompt.
-
----
-
 ## Habit Completion
 
 ```
@@ -1387,20 +926,22 @@ POST /api/habits/:id/complete
 { "note": "Felt really focused today" }
 ```
 
-**Period normalization:** `daily` → midnight of today, `weekly` → Monday midnight of the current ISO week. Completing at 9am and 11pm on the same day maps to the same date. The `@@unique([habitId, date])` constraint enforces this at the database level.
-
 **Response includes streak milestone detection:**
 
 ```json
 {
   "message": "Habit marked as completed",
   "log": { "id": "uuid", "date": "2026-02-23T00:00:00.000Z", "note": "..." },
-  "currentStreak": 7,
-  "milestone": { "days": 7, "message": "Amazing! You hit a 7-day streak!" }
+  "currentStreak": 30,
+  "milestone": { "days": 30, "message": "Amazing! You hit a 30-day streak!" }
 }
 ```
 
-`milestone` is `null` if no milestone was hit. Milestones trigger at: **7, 14, 21, 30, 60, 90, 100, 180, 365 days.**
+**Side effects (fire-and-forget, non-blocking):**
+
+- Streak milestone awards (`HABIT_STREAK_7` through `HABIT_STREAK_365`)
+- Badge checks → `IRON_WILL` (streak ≥ 30) and `CENTURION` (streak ≥ 100)
+- Challenge progress auto-advance for all active challenges linked to this habit
 
 ---
 
@@ -1423,125 +964,537 @@ GET /api/habits/:id/analytics
 }
 ```
 
-**`consistencyScore` formula:** `50% completion rate + 30% streak (normalized to personal best) + 20% recency`
+---
 
-> A user with 60% completion rate and an active 30-day streak scores significantly higher than one with 60% rate who hasn't completed the habit in two weeks.
+# 🏅 Badges Module _(Phase 4)_
+
+Achievement badges are awarded automatically as **fire-and-forget side effects** inside `completeHabit()` and `addMood()`. Badge failures never crash primary operations. Each badge is awarded once per user — idempotency enforced by `@@unique([userId, type])`.
+
+## 🗺 Badges API Reference
+
+| Method | Endpoint      | Auth | Description                                             |
+| ------ | ------------- | ---- | ------------------------------------------------------- |
+| `GET`  | `/api/badges` | ✅   | Badge shelf — earned (with dates) + locked (with hints) |
 
 ---
 
-## Habit Heatmap
+## Get Badge Shelf
 
 ```
-GET /api/habits/:id/heatmap?days=365
+GET /api/badges
+Authorization: Bearer <accessToken>
 ```
+
+Returns two lists: earned badges with metadata and `earnedAt`, and all locked badges with hint text so users know how to unlock them. This is better retention UX than showing only earned badges.
 
 ```json
 {
-  "heatmap": [
-    { "date": "2025-02-23", "completed": 0 },
-    { "date": "2025-02-24", "completed": 1 }
-  ]
+  "earned": [
+    {
+      "id": "uuid",
+      "type": "IRON_WILL",
+      "icon": "💪",
+      "label": "Iron Will",
+      "description": "30-day streak on a single habit. This is becoming identity.",
+      "category": "habit",
+      "relatedId": "habit-uuid",
+      "earnedAt": "2026-02-26T08:30:00.000Z"
+    }
+  ],
+  "locked": [
+    {
+      "type": "CENTURION",
+      "icon": "🏅",
+      "label": "Centurion",
+      "description": "100-day streak on a single habit. Legendary consistency.",
+      "category": "habit",
+      "hint": "Reach a 100-day streak on any habit."
+    }
+  ],
+  "summary": {
+    "total": 6,
+    "earned": 2,
+    "remaining": 4
+  }
 }
 ```
 
-`completed: 0 | 1` — maps directly to GitHub-style colour intensity on the frontend.
+---
+
+## Badge Types
+
+| Badge         | Type            | Category    | Icon | Unlock Condition                            |
+| ------------- | --------------- | ----------- | ---- | ------------------------------------------- |
+| First Step    | `FIRST_STEP`    | mood        | 🌱   | Log your first mood entry                   |
+| Week One      | `WEEK_ONE`      | mood        | 🔥   | 7-day consecutive mood logging streak       |
+| Iron Will     | `IRON_WILL`     | habit       | 💪   | Reach a 30-day streak on any single habit   |
+| Mindful Month | `MINDFUL_MONTH` | mood        | 🧘   | Log mood every day of a full calendar month |
+| Resilient     | `RESILIENT`     | achievement | 🌸   | Burnout risk drops from High → Low          |
+| Centurion     | `CENTURION`     | habit       | 🏅   | Reach a 100-day streak on any single habit  |
 
 ---
 
-## Monthly Summary
+## How Badges Are Awarded
 
-```
-GET /api/habits/:id/summary?month=2026-02
+Badges are checked inside two existing service calls:
+
+**In `completeHabit()`** — after streak is calculated:
+
+```typescript
+// Fire-and-forget — badge failures never crash habit completion
+checkAndAwardHabitBadges(userId, currentStreak, habitId).catch(() => {});
+advanceChallengeProgressForHabit(habitId, userId).catch(() => {});
 ```
 
-```json
-{
-  "month": "2026-02",
-  "completionsThisMonth": 18,
-  "completionRate": 64.29,
-  "calendar": [
-    { "date": "2026-02-01", "completed": true },
-    { "date": "2026-02-02", "completed": false }
-  ]
-}
+**In `addMood()`** — after entry is saved, four queries run in parallel:
+
+```typescript
+(async () => {
+  try {
+    const [totalMoodCount, streak, recentScores, monthCoverage] =
+      await Promise.all([
+        prisma.moodEntry.count({ where: { userId } }),
+        calculateMoodStreak(userId),
+        getMoodScores(userId).then((rows) =>
+          rows.slice(0, 14).map((r) => r.moodScore),
+        ),
+        checkFullMonthMoodCoverage(userId),
+      ]);
+
+    const burnoutDroppedToLow = prevRisk === "High" && currRisk === "Low";
+
+    await checkAndAwardMoodBadges(userId, {
+      totalMoodCount,
+      currentMoodStreak: streak.currentStreak,
+      burnoutDroppedToLow,
+      loggedEveryDayThisMonth: monthCoverage,
+    });
+  } catch {}
+})();
 ```
 
 ---
 
-## Undo Last Completion
-
-```
-DELETE /api/habits/:id/complete
-```
-
-Removes the most recent completion log. **Only allowed if the latest log is from the current period** — you cannot undo a log from a previous day or week.
-
----
-
-## Reorder Habits
-
-```
-PATCH /api/habits/reorder
-```
-
-```json
-{
-  "habits": [
-    { "id": "uuid-1", "sortOrder": 0 },
-    { "id": "uuid-2", "sortOrder": 1 }
-  ]
-}
-```
-
-All `sortOrder` updates run in a **single atomic database transaction**. If any update fails, all changes roll back.
-
----
-
-## Habit Database Schema
+## Badge Database Schema
 
 ```prisma
-model Habit {
-  id            String         @id @default(uuid())
-  title         String
-  description   String?
-  frequency     HabitFrequency
-  category      HabitCategory  @default(custom)
-  color         String?
-  icon          String?
-  targetPerWeek Int?
-  sortOrder     Int            @default(0)
-  isArchived    Boolean        @default(false)
-  reminderTime  String?
-  reminderOn    Boolean        @default(false)
-  userId        String
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-
-  @@unique([userId, title, frequency])
-  @@index([userId])
-  @@index([reminderOn, reminderTime])  // cron job performance index
+enum BadgeType {
+  FIRST_STEP
+  WEEK_ONE
+  IRON_WILL
+  MINDFUL_MONTH
+  RESILIENT
+  CENTURION
 }
 
-model HabitLog {
-  id        String   @id @default(uuid())
-  habitId   String
-  date      DateTime
-  completed Boolean  @default(true)
-  note      String?
-  createdAt DateTime @default(now())
+model Badge {
+  id        String    @id @default(uuid())
+  userId    String
+  type      BadgeType
+  relatedId String?   // e.g. habitId for IRON_WILL / CENTURION
+  earnedAt  DateTime  @default(now())
 
-  @@unique([habitId, date])
-  @@index([habitId])
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, type])
+  @@index([userId])
+  @@index([userId, type])
+  @@index([type])
 }
 ```
+
+---
+
+# 🎯 Challenges Module _(Phase 4)_
+
+The Challenge System allows users to create time-boxed habit goals, invite others via a join code, and compete on a leaderboard.
+
+**Two challenge types:**
+
+- **Habit-linked** — linked to an existing habit via `habitId`. Progress advances automatically every time the participant completes that habit. No manual tracking needed.
+- **Free-form** — no linked habit. Participants manually mark days complete via `POST /api/challenges/:id/complete`.
+
+## 🗺 Challenges API Reference
+
+| Method | Endpoint                          | Auth | Description                                           |
+| ------ | --------------------------------- | ---- | ----------------------------------------------------- |
+| `GET`  | `/api/challenges`                 | ✅   | Browse public challenges (`?page` `?limit` `?active`) |
+| `POST` | `/api/challenges`                 | ✅   | Create a challenge (creator auto-joined as #1)        |
+| `GET`  | `/api/challenges/mine`            | ✅   | Challenges you created (includes `joinCode`)          |
+| `GET`  | `/api/challenges/joined`          | ✅   | Challenges you joined (with nested progress object)   |
+| `POST` | `/api/challenges/:id/join`        | ✅   | Join public (by ID) or private (by `joinCode`)        |
+| `POST` | `/api/challenges/:id/complete`    | ✅   | Manually mark a day complete (free-form only)         |
+| `GET`  | `/api/challenges/:id/leaderboard` | ✅   | Ranked leaderboard with `isMe` flag                   |
+
+---
+
+## Create a Challenge
+
+```
+POST /api/challenges
+Authorization: Bearer <accessToken>
+```
+
+```json
+{
+  "title": "30 Days of Morning Meditation",
+  "description": "Meditate every morning for 30 days straight.",
+  "habitId": "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
+  "targetDays": 30,
+  "startDate": "2026-03-01",
+  "isPublic": true
+}
+```
+
+**Fields:**
+
+| Field         | Type           | Required | Description                                                              |
+| ------------- | -------------- | -------- | ------------------------------------------------------------------------ |
+| `title`       | string 3–100   | ✅       | Challenge display name                                                   |
+| `description` | string max 500 | ❌       | Optional context                                                         |
+| `habitId`     | UUID           | ❌       | Link to an existing habit — completions auto-advance progress            |
+| `targetDays`  | integer 1–365  | ✅       | Duration of the challenge                                                |
+| `startDate`   | date           | ✅       | Cannot be in the past. `endDate` is computed as `startDate + targetDays` |
+| `isPublic`    | boolean        | ❌       | `true` = appears in public feed. `false` = invite-only via `joinCode`    |
+
+**Response `201`:**
+
+```json
+{
+  "challenge": {
+    "id": "b3f1e9a2-4c72-4f8d-bc12-9d1a3e7f0b45",
+    "title": "30 Days of Morning Meditation",
+    "targetDays": 30,
+    "startDate": "2026-03-01T00:00:00.000Z",
+    "endDate": "2026-03-31T00:00:00.000Z",
+    "isPublic": true,
+    "isActive": true,
+    "joinCode": "A3F9E201",
+    "createdBy": "uuid",
+    "participantCount": 1
+  }
+}
+```
+
+> `joinCode` is an 8-character uppercase hex code. Share it with friends to let them join a private challenge.
+
+---
+
+## Join a Challenge
+
+```
+POST /api/challenges/:id/join
+Authorization: Bearer <accessToken>
+```
+
+**Public challenge** — body can be empty. Pass the challenge `id` in the URL.
+
+**Private challenge** — pass `joinCode` in the body. The URL `id` is ignored when `joinCode` is provided.
+
+```json
+{ "joinCode": "A3F9E201" }
+```
+
+**Responses:**
+
+| Code  | Meaning                                  |
+| ----- | ---------------------------------------- |
+| `200` | Successfully joined                      |
+| `400` | Challenge has ended                      |
+| `404` | Challenge not found (invalid ID or code) |
+| `409` | Already joined this challenge            |
+
+---
+
+## Get Joined Challenges (with Progress)
+
+```
+GET /api/challenges/joined
+Authorization: Bearer <accessToken>
+```
+
+```json
+{
+  "challenges": [
+    {
+      "id": "b3f1e9a2-...",
+      "title": "30 Days of Morning Meditation",
+      "targetDays": 30,
+      "startDate": "2026-03-01T00:00:00.000Z",
+      "endDate": "2026-03-31T00:00:00.000Z",
+      "isActive": true,
+      "habitId": "a1b2c3d4-...",
+      "progress": {
+        "completionsCount": 14,
+        "targetDays": 30,
+        "progressPct": 47,
+        "isCompleted": false,
+        "completedAt": null
+      },
+      "joinedAt": "2026-03-01T08:00:00.000Z"
+    }
+  ]
+}
+```
+
+---
+
+## Challenge Leaderboard
+
+```
+GET /api/challenges/:id/leaderboard
+Authorization: Bearer <accessToken>
+```
+
+Ranked by `completionsCount` descending. Ties broken by `completedAt` ascending (finished first ranks higher). The `isMe` flag lets the frontend highlight the authenticated user's row without client-side ID comparison.
+
+**Access rules:** Public challenges — any authenticated user. Private challenges — participants only (`403` for non-participants).
+
+```json
+{
+  "challengeId": "b3f1e9a2-...",
+  "challengeTitle": "30 Days of Morning Meditation",
+  "targetDays": 30,
+  "totalParticipants": 3,
+  "leaderboard": [
+    {
+      "rank": 1,
+      "name": "Ashish Anand",
+      "completionsCount": 30,
+      "progressPct": 100,
+      "isCompleted": true,
+      "completedAt": "2026-03-31T09:15:00.000Z",
+      "isMe": true
+    },
+    {
+      "rank": 2,
+      "name": "Priya Sharma",
+      "completionsCount": 28,
+      "progressPct": 93,
+      "isCompleted": false,
+      "completedAt": null,
+      "isMe": false
+    }
+  ]
+}
+```
+
+---
+
+## How Challenge Progress Advances Automatically
+
+Inside `completeHabit()`, after logging the completion:
+
+```typescript
+// Fire-and-forget — challenge failures never crash habit completion
+advanceChallengeProgressForHabit(habitId, userId).catch(() => {});
+```
+
+`advanceChallengeProgressForHabit()` finds all active `ChallengeParticipant` records where the challenge is linked to this `habitId` and this `userId`, increments `completionsCount`, and fires a `CHALLENGE_UPDATE` notification when `completionsCount >= targetDays`.
+
+---
+
+## Challenge Database Schema
+
+```prisma
+model Challenge {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  habitId     String?
+  targetDays  Int
+  startDate   DateTime
+  endDate     DateTime
+  isPublic    Boolean  @default(true)
+  isActive    Boolean  @default(true)
+  joinCode    String   @unique
+  createdBy   String
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  creator      User                   @relation("ChallengeCreator", fields: [createdBy], references: [id], onDelete: Cascade)
+  participants ChallengeParticipant[]
+
+  @@index([createdBy])
+  @@index([isPublic, isActive])
+  @@index([habitId])
+}
+
+model ChallengeParticipant {
+  id               String    @id @default(uuid())
+  challengeId      String
+  userId           String
+  completionsCount Int       @default(0)
+  isCompleted      Boolean   @default(false)
+  completedAt      DateTime?
+  joinedAt         DateTime  @default(now())
+
+  challenge Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([challengeId, userId])
+  @@index([userId])
+  @@index([challengeId])
+}
+```
+
+---
+
+# 💬 Community Module _(Phase 4)_
+
+The Anonymous Community Feed lets users share behavioral milestones and personal reflections with the community — without ever revealing their identity.
+
+**Anonymity guarantee:** Authentication is required to post or upvote (preventing spam), but user identity is **never stored** on any post document. No `userId`, IP, or identifying data is persisted. Upvote deduplication uses `HMAC-SHA256(userId, serverSecret)` — same user always produces the same hash (idempotency), but the hash is mathematically irreversible (privacy). The hash is stored server-side only and never returned in any API response.
+
+## 🗺 Community API Reference
+
+| Method | Endpoint                    | Auth        | Description                                  |
+| ------ | --------------------------- | ----------- | -------------------------------------------- |
+| `GET`  | `/api/community`            | ❌ Optional | Browse the anonymous feed (public)           |
+| `POST` | `/api/community`            | ✅          | Submit an anonymous post (identity stripped) |
+| `POST` | `/api/community/:id/upvote` | ✅          | Toggle upvote — one vote per user per post   |
+
+---
+
+## Browse the Feed (Public)
+
+```
+GET /api/community?page=1&limit=20&sort=popular&type=MILESTONE&tag=meditation
+```
+
+**No authentication required.** Optional auth adds a `hasUpvoted` flag to each post so the frontend can show the upvote button in its active/inactive state.
+
+**Query parameters:**
+
+| Parameter | Type    | Default  | Description                                            |
+| --------- | ------- | -------- | ------------------------------------------------------ |
+| `page`    | integer | 1        | Page number (1-indexed)                                |
+| `limit`   | integer | 20       | Posts per page (max 50)                                |
+| `sort`    | string  | `newest` | `newest` = most recent first, `popular` = most upvoted |
+| `type`    | string  | —        | Filter by `MILESTONE` or `REFLECTION`. Omit for all.   |
+| `tag`     | string  | —        | Filter by tag slug (case-insensitive)                  |
+
+```json
+{
+  "posts": [
+    {
+      "id": "65d4fa21bc92b3bcd23e4567",
+      "type": "MILESTONE",
+      "content": "Just hit a 30-day meditation streak! Never thought I'd make it this far.",
+      "tags": ["meditation", "mindfulness", "streak"],
+      "upvotes": 47,
+      "hasUpvoted": true,
+      "createdAt": "2026-02-26T08:30:00.000Z"
+    }
+  ],
+  "pagination": {
+    "total": 342,
+    "page": 1,
+    "limit": 20,
+    "totalPages": 18
+  }
+}
+```
+
+> `hasUpvoted` is only present when the request is authenticated. Without auth, the field is omitted.
+
+---
+
+## Submit an Anonymous Post
+
+```
+POST /api/community
+Authorization: Bearer <accessToken>
+```
+
+Requires authentication to prevent spam. Identity is discarded before the document is saved — no `userId` is ever written to MongoDB.
+
+```json
+{
+  "type": "MILESTONE",
+  "content": "Just hit a 30-day meditation streak! Never thought I'd make it this far.",
+  "tags": ["meditation", "mindfulness", "30-day-streak"]
+}
+```
+
+**Fields:**
+
+| Field     | Type                      | Required | Description                                              |
+| --------- | ------------------------- | -------- | -------------------------------------------------------- |
+| `type`    | `MILESTONE`\|`REFLECTION` | ✅       | Post category                                            |
+| `content` | string 10–500             | ✅       | Post body. 10–500 characters.                            |
+| `tags`    | string[]                  | ❌       | Up to 5 lowercase slugs (`^[a-z0-9-]+$`). Default: `[]`. |
+
+**Post types:**
+
+| Type         | When to use                                               |
+| ------------ | --------------------------------------------------------- |
+| `MILESTONE`  | Share a behavioral achievement (streak, badge, challenge) |
+| `REFLECTION` | Share a thought, insight, or personal observation         |
+
+**Response `201`:**
+
+```json
+{
+  "post": {
+    "id": "65d4fa21bc92b3bcd23e4567",
+    "type": "MILESTONE",
+    "content": "Just hit a 30-day meditation streak!",
+    "tags": ["meditation", "mindfulness"],
+    "upvotes": 0,
+    "createdAt": "2026-02-26T08:30:00.000Z"
+  }
+}
+```
+
+---
+
+## Toggle Upvote
+
+```
+POST /api/community/:id/upvote
+Authorization: Bearer <accessToken>
+```
+
+**Toggle semantics:** calling this endpoint twice returns the upvote to its original state.
+
+- First call → adds upvote → `{ upvotes: N+1, hasUpvoted: true }`
+- Second call → removes upvote → `{ upvotes: N, hasUpvoted: false }`
+
+```json
+{
+  "postId": "65d4fa21bc92b3bcd23e4567",
+  "upvotes": 48,
+  "hasUpvoted": true
+}
+```
+
+---
+
+## Community MongoDB Schema
+
+```ts
+// MongoDB — CommunityPost
+{
+  type: "MILESTONE" | "REFLECTION"
+  content: string           // 10–500 characters
+  tags: string[]            // up to 5 lowercase slugs
+  upvotes: number           // atomic increment/decrement
+  upvotedBy: string[]       // HMAC-SHA256 hashes only — select: false, never returned in queries
+  createdAt: Date
+}
+```
+
+> `upvotedBy` has `select: false` on the Mongoose schema — it **physically cannot appear** in any query result. This is an architectural anonymity guarantee, not just a filter.
+
+**Indexes:** `{ createdAt: -1 }` (newest feed), `{ upvotes: -1 }` (popular feed), `{ tags: 1 }` (tag filter), `{ type: 1 }` (type filter).
 
 ---
 
 # ⏰ Reminder Cron Job
 
 PulseBloom includes a production-grade background job that sends habit reminder emails to users who haven't completed their habit yet for the current period.
-
-## How It Works
 
 ```
 Every minute:
@@ -1552,26 +1505,7 @@ Every minute:
   5. Already completed → skip silently
 ```
 
-Error isolation is achieved via `Promise.allSettled()` — if one email fails, all other reminders still fire.
-
-## Terminal Output
-
-```
-[INFO]  [ReminderCron] ⏱  Tick — 08:00
-[INFO]  [ReminderCron] Found 2 habit(s) to process
-[INFO]  ✅ Reminder email sent {"to":"ashish@gmail.com","habit":"Morning Meditation"}
-[INFO]  [ReminderCron] ✅ Tick complete {"sent":2,"skipped":0,"failed":0}
-```
-
-## Environment Variables Required
-
-```env
-SMTP_USER=yourgmail@gmail.com
-SMTP_PASS=your_16_char_app_password
-EMAIL_FROM="PulseBloom 🌸 <yourgmail@gmail.com>"
-```
-
-> You must use a [Google App Password](https://myaccount.google.com/apppasswords) — not your real Gmail password. 2-Step Verification must be enabled first.
+Error isolation via `Promise.allSettled()` — if one email fails, all other reminders still fire.
 
 ---
 
@@ -1586,90 +1520,17 @@ GET /api/ai/insights
 GET /api/ai/insights?refresh=true
 ```
 
-`?refresh=true` bypasses the cache and forces regeneration.
-
 > **Plan limit:** AI Insights are available on **Pro and Enterprise plans only**. Free plan users receive a `403` with an upgrade prompt.
-
-## How It Works
-
-```
-GET /api/ai/insights
-    ↓
-Fetch last 90 days of mood entries + habit logs (parallel DB queries)
-    ↓
-Compute SHA-256 hash of raw data snapshot
-    ↓
-Check AiInsight cache: current hash === cached hash?
-    YES → return cached insights instantly (zero Groq API cost)
-    NO  → continue
-    ↓
-Pre-process into weekly behavioral summaries (ai.prompt.ts)
-    ↓
-Build system + user prompts
-    ↓
-Call Groq API (temperature: 0.4, max_tokens: 1200)
-    ↓
-Parse + validate JSON response
-    ↓
-Upsert AiInsight cache row in PostgreSQL
-    ↓
-Return 3–6 structured insights
-```
-
-## Response
-
-```json
-{
-  "insights": [
-    {
-      "type": "correlation",
-      "title": "Meditation skips align with your lowest mood weeks",
-      "description": "In the 3 weeks where your mood averaged below 3.0, you completed Morning Meditation 0 times. In weeks you did complete it, your average mood was 4.1.",
-      "severity": "warning"
-    },
-    {
-      "type": "positive",
-      "title": "Strong consistency on weekday mornings",
-      "description": "You completed Exercise 91% of weekdays over the past 90 days — your best performing habit.",
-      "severity": "success"
-    }
-  ],
-  "cached": true,
-  "generatedAt": "2026-02-26T08:00:00.000Z",
-  "message": "Insights served from cache"
-}
-```
-
-## Insight Types
-
-| Type          | Meaning                                     | Severity           |
-| ------------- | ------------------------------------------- | ------------------ |
-| `correlation` | Mood ↔ habit relationship (highest value)   | `warning` / `info` |
-| `streak`      | Notable streak pattern (current or broken)  | `info` / `success` |
-| `warning`     | Concerning pattern needing attention        | `warning`          |
-| `positive`    | Strong behavioral pattern worth celebrating | `success`          |
-| `suggestion`  | Actionable recommendation based on data     | `info`             |
 
 ## Caching Strategy
 
-Results are cached in PostgreSQL (`AiInsight` table) using a **SHA-256 data hash**. The Groq API is only called when the user's behavioral data has actually changed — not on a fixed TTL. Zero API cost on repeated requests with unchanged data.
-
-## Minimum Data Requirements
-
-- At least 7 mood entries, **OR**
-- At least 1 habit with 5+ completions
-
-## Environment Variable Required
-
-```env
-GROQ_API_KEY=gsk_...your-key-here...
-```
+Results are cached in PostgreSQL (`AiInsight` table) using a **SHA-256 data hash**. The Groq API is only called when behavioral data has actually changed — not on a fixed TTL. Zero API cost on repeated requests with unchanged data.
 
 ---
 
 # 💳 Billing Module
 
-PulseBloom uses **Razorpay** for subscription billing. The billing module enforces plan-based feature gating across the entire API via the `planLimiter` middleware.
+PulseBloom uses **Razorpay** for subscription billing with plan-based feature gating across the entire API.
 
 ## Plan Limits
 
@@ -1689,213 +1550,6 @@ PulseBloom uses **Razorpay** for subscription billing. The billing module enforc
 | `GET`    | `/api/billing/status`       | ✅   | Current plan, renewal date, manage link            |
 | `DELETE` | `/api/billing/subscription` | ✅   | Cancel subscription at end of billing period       |
 
-## Payment Flow
-
-```
-Frontend                    Your Backend              Razorpay
-─────────                   ────────────              ────────
-Click "Upgrade to Pro"
-  │
-  ├─ POST /api/billing/order ──────────────────────────────────→
-  │                           createOrder()
-  │                           razorpay.orders.create()  ───────→
-  │                                                     order_id ←─
-  │  ←────────── { orderId, amount, currency, keyId }
-  │
-  ├─ new Razorpay({ key, order_id }).open()
-  │                                               ←── Popup shown
-  │  User pays with card / UPI / netbanking
-  │                                               ──── Payment ──→
-  │  handler({ payment_id, order_id, signature }) ←─────────────
-  │
-  ├─ POST /api/billing/verify ─────────────────────────────────→
-  │                           HMAC-SHA256 signature verify ✅
-  │                           razorpay.payments.fetch() ────────→
-  │                                                  status=captured ←─
-  │                           prisma: user.plan = "pro"
-  │  ←────────── { success: true, plan: "pro" }
-  │
-  Show success UI ✅
-```
-
-## Create Order (Step 1)
-
-```
-POST /api/billing/order
-Authorization: Bearer <accessToken>
-```
-
-```json
-{ "plan": "pro" }
-```
-
-**Response:**
-
-```json
-{
-  "orderId": "order_NaVxyz123",
-  "amount": 99900,
-  "currency": "INR",
-  "keyId": "rzp_test_...",
-  "plan": "pro"
-}
-```
-
-Pass these to the Razorpay checkout popup on the frontend. See `billing.routes.ts` for the complete frontend integration snippet.
-
----
-
-## Verify Payment (Step 2)
-
-```
-POST /api/billing/verify
-Authorization: Bearer <accessToken>
-```
-
-```json
-{
-  "razorpayOrderId": "order_NaVxyz123",
-  "razorpayPaymentId": "pay_NaVabc456",
-  "razorpaySignature": "a9f3e2...",
-  "plan": "pro"
-}
-```
-
-Verifies the `HMAC-SHA256` signature — the critical security step that prevents fake payment IDs from being submitted to get a free upgrade.
-
-**Response:**
-
-```json
-{
-  "success": true,
-  "plan": "pro",
-  "message": "🎉 Welcome to PulseBloom Pro! Your plan has been upgraded."
-}
-```
-
----
-
-## Billing Status
-
-```
-GET /api/billing/status
-Authorization: Bearer <accessToken>
-```
-
-```json
-{
-  "currentPlan": "pro",
-  "subscription": {
-    "status": "active",
-    "currentPeriodEnd": "2026-04-01T00:00:00.000Z",
-    "cancelledAt": null
-  },
-  "manageUrl": "http://localhost:3000/billing/manage"
-}
-```
-
----
-
-## Cancel Subscription
-
-```
-DELETE /api/billing/subscription
-Authorization: Bearer <accessToken>
-```
-
-Cancels the Razorpay subscription. Access is retained until `currentPeriodEnd`, then the plan reverts to `free`.
-
-```json
-{
-  "message": "Subscription cancelled. You will retain access until the end of your current billing period."
-}
-```
-
----
-
-## Webhook Events Handled
-
-| Event                    | Action                                           |
-| ------------------------ | ------------------------------------------------ |
-| `subscription.charged`   | Renewal confirmed — refreshes `currentPeriodEnd` |
-| `subscription.cancelled` | Reverts user plan to `free`                      |
-| `payment.failed`         | Marks subscription as `past_due`                 |
-
-Webhook signature is verified via `HMAC-SHA256` using `RAZORPAY_WEBHOOK_SECRET`. Always returns `200` to prevent Razorpay retries on processing errors.
-
----
-
-## Plan Enforcement Middleware
-
-`checkPlanLimit(resource)` is applied at the route level — before the controller runs.
-
-| Resource        | Enforcement                                                  |
-| --------------- | ------------------------------------------------------------ |
-| `habit_create`  | Hard block (403) if free user has ≥ 3 active habits          |
-| `mood_history`  | Clamps `startDate` to last 30 days for free users (no block) |
-| `ai_insights`   | Hard block (403) for free users                              |
-| `team_features` | Hard block (403) for non-enterprise users                    |
-
-Upgrade prompt response shape:
-
-```json
-{
-  "error": "plan_limit_reached",
-  "message": "Free plan is limited to 3 active habits.",
-  "currentPlan": "free",
-  "requiredPlan": "pro",
-  "upgradeUrl": "https://yourapp.com/billing/upgrade?from=free&to=pro",
-  "limit": 3,
-  "current": 3
-}
-```
-
----
-
-## Billing Database Schema
-
-```prisma
-enum Plan {
-  free
-  pro
-  enterprise
-}
-
-enum SubscriptionStatus {
-  active
-  cancelled
-  past_due
-  trialing
-  incomplete
-}
-
-model Subscription {
-  id                   String             @id @default(uuid())
-  userId               String             @unique
-  plan                 Plan
-  status               SubscriptionStatus @default(active)
-  stripeSubscriptionId String?            @unique  // stores Razorpay subscription ID
-  currentPeriodStart   DateTime?
-  currentPeriodEnd     DateTime?
-  cancelledAt          DateTime?
-  createdAt            DateTime           @default(now())
-  updatedAt            DateTime           @updatedAt
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@index([userId])
-  @@index([stripeSubscriptionId])
-}
-```
-
-`User` model additions:
-
-```prisma
-plan                 Plan    @default(free)
-stripeCustomerId     String? @unique   // unused with Razorpay — kept for future gateway flexibility
-stripeSubscriptionId String? @unique   // stores Razorpay subscription ID
-```
-
 ---
 
 # 🗄 Hybrid Database Architecture
@@ -1904,51 +1558,44 @@ stripeSubscriptionId String? @unique   // stores Razorpay subscription ID
 
 Managed via **Prisma ORM** with a `pg` connection pool adapter.
 
-Stores: Users, RefreshTokens, MoodEntry, Habit, HabitLog, AiInsight cache, Subscription.
+Stores: Users, RefreshTokens, MoodEntry, Habit, HabitLog, AiInsight cache, Subscription, Milestone, Badge, Challenge, ChallengeParticipant.
 
-Used for: Filtering, pagination, sorting, analytics calculations, streak queries, transactional reordering, cron job reminder queries, O(1) refresh token lookup via `@@index([token])`, plan enforcement reads.
+Used for: Filtering, pagination, sorting, analytics, streak queries, transactional reordering, cron job queries, plan enforcement, badge idempotency checks, challenge leaderboards.
 
 ## MongoDB (Unstructured Data)
 
 Managed via **Mongoose**.
 
-Stores: JournalEntry (mood text + tags).
+Stores: JournalEntry (mood text + tags), CommunityPost (anonymous posts + upvotes).
 
-Optimised for: Flexible schemas, text-heavy storage, future AI model integrations, community posts (upcoming).
+Optimised for: Flexible schemas, text-heavy storage, anonymous community data, future AI model integrations.
 
 ---
 
 # 🛡 Security & Reliability
 
 - `bcrypt` password hashing (salt rounds: 12)
-- Strong password policy enforced at validation layer (uppercase, lowercase, number, special char)
 - Dual-token JWT system — short-lived access tokens (15m) + long-lived refresh tokens (7d)
-- Refresh token rotation — every `/refresh-token` call immediately revokes the old token and issues a new one
-- Refresh token reuse detection — using a revoked token terminates **all sessions** for that user
-- Email verification required before login — unverified accounts cannot access the API
-- OTP generated with `crypto.randomInt` (cryptographically secure, not `Math.random`)
+- Refresh token rotation with reuse detection — using a revoked token terminates **all sessions**
+- Email verification required before login
+- OTP generated with `crypto.randomInt` (cryptographically secure)
 - Password reset tokens generated with `crypto.randomBytes(32)` (256-bit randomness)
-- Password reset revokes all existing refresh tokens — forces re-login on all devices
 - All forgot-password and resend-verification responses are identical (prevents user enumeration)
-- Route-level `protect` middleware on all user endpoints — validates access token, attaches `req.userId`
-- `TokenExpiredError` distinguished from `JsonWebTokenError` — client knows to refresh vs re-login
-- Global centralised error handler — ZodError → 400 with field-level detail, AppErrors → correct HTTP status, unknown errors → 500 (never leaks stack traces)
-- Tiered rate limiting — global (100 req/15min), auth login/register (10 req/15min), OTP resend + forgot-password (3 req/15min)
-- `skipSuccessfulRequests: true` on login limiter — only failed attempts count toward the limit
-- `helmet` security headers
-- CORS enabled
-- Environment variable validation on startup — server refuses to start with missing required vars
-- Atomic database transactions for multi-row operations (habit reorder, plan upgrades)
+- Route-level `protect` middleware on all user endpoints
+- Global centralised error handler — ZodError → 400, AppErrors → correct HTTP status, 500 never leaks stack traces
+- Tiered rate limiting — global (100 req/15min), auth (10 req/15min), OTP resend (3 req/15min)
+- `helmet` security headers + CORS enabled
+- Environment variable validation on startup
+- Atomic database transactions for multi-row operations
 - Soft-delete pattern preserves all historical behavioral data
-- DB-level unique constraints as a safety net against race conditions
-- `@@index([token])` on RefreshToken for O(1) lookup during rotation
-- Ownership checks (`assertMoodOwnership`) before every write operation
-- Cron job error isolation — one email failure never blocks other users
-- MongoDB cleanup runs before Postgres delete — prevents orphaned documents
-- Gmail SMTP with TLS for secure email delivery
-- Razorpay `HMAC-SHA256` signature verification on every payment — prevents fake payment ID attacks
-- Razorpay webhook signature verification — prevents spoofed webhook events
-- Plan read from DB (not JWT) on every request — plan upgrades take effect immediately
+- DB-level unique constraints as race-condition safety nets
+- Ownership checks before every write operation
+- Cron job error isolation via `Promise.allSettled()`
+- Razorpay `HMAC-SHA256` signature verification on every payment
+- Community anonymity enforced architecturally — `upvotedBy` has `select: false` and is never returned in any query
+- Upvote deduplication via `HMAC-SHA256(userId, serverSecret)` — irreversible, never exposed in any API response
+- Badge awards are idempotent — `hasBadge()` checked before every write, `@@unique([userId, type])` as DB-level safety net
+- All gamification side effects (badges, challenges) are fire-and-forget — failures never propagate to primary operations
 
 ---
 
@@ -1964,7 +1611,7 @@ Features:
 
 - Bearer token authentication
 - All request/response schemas documented with examples
-- Organised by feature module (Auth / Mood / Habits / AI Insights / Billing)
+- Organised by feature module (Auth / Mood / Habits / AI Insights / Billing / Badges / Challenges / Community)
 - Real-time API testing in-browser
 
 ---
@@ -1994,22 +1641,21 @@ DATABASE_URL=postgresql://postgres:password@localhost:5432/pulsebloom
 MONGO_URI=mongodb://localhost:27017/pulsebloom
 JWT_SECRET=your_super_secret_key_min_32_chars
 
-# Gmail SMTP — for OTP verification + password reset + habit reminder emails
+# Community upvote anonymisation — any 32+ char random string
+COMMUNITY_HMAC_SECRET=your_hmac_secret_min_32_chars
+
+# Gmail SMTP
 SMTP_USER=yourgmail@gmail.com
 SMTP_PASS=your_16_char_app_password
 EMAIL_FROM="PulseBloom 🌸 <yourgmail@gmail.com>"
 
-# Frontend URL — used in password reset email link and billing redirects
-# Development: http://localhost:3000  |  Production: https://yourapp.com
+# Frontend URL
 APP_URL=http://localhost:3000
 
 # Groq — for AI insights
 GROQ_API_KEY=gsk_...your-key-here...
 
-# ─────────────────────────────────────────────────────────────────
 # Razorpay — for subscription billing
-# Get from: https://dashboard.razorpay.com → Account & Settings → API Keys
-# ─────────────────────────────────────────────────────────────────
 RAZORPAY_KEY_ID=rzp_test_...
 RAZORPAY_KEY_SECRET=your_razorpay_secret
 RAZORPAY_WEBHOOK_SECRET=your_webhook_secret
@@ -2017,19 +1663,7 @@ RAZORPAY_PLAN_PRO=plan_...
 RAZORPAY_PLAN_ENTERPRISE=plan_...
 ```
 
-> **Gmail App Password Setup:**
->
-> 1. Go to [myaccount.google.com/security](https://myaccount.google.com/security) → enable 2-Step Verification
-> 2. Go to [myaccount.google.com/apppasswords](https://myaccount.google.com/apppasswords) → create an App Password named `PulseBloom`
-> 3. Copy the 16-character password (remove spaces) → paste into `SMTP_PASS`
-
-> **Razorpay Setup:**
->
-> 1. Sign up at [razorpay.com](https://razorpay.com) — KYC approved instantly for Indian accounts
-> 2. Dashboard → Account & Settings → API Keys → Generate Key → copy `key_id` and `key_secret`
-> 3. Dashboard → Subscriptions → Plans → Create plans for Pro (₹999/mo) and Enterprise (₹2999/mo) → copy Plan IDs
-> 4. Dashboard → Account & Settings → Webhooks → Add webhook URL → copy signing secret
-> 5. For local webhook testing: `ngrok http 5000` → use the ngrok URL as webhook endpoint
+> **`COMMUNITY_HMAC_SECRET`** is used to hash upvoter identities. Generate with: `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`. Keep this secret — rotating it invalidates all existing upvote deduplication records.
 
 ## 4. Setup PostgreSQL
 
@@ -2037,10 +1671,10 @@ RAZORPAY_PLAN_ENTERPRISE=plan_...
 CREATE DATABASE pulsebloom;
 ```
 
-Run migrations and generate the Prisma client:
+Run migrations (Phase 4 adds `Badge`, `Challenge`, `ChallengeParticipant` + `BadgeType` enum):
 
 ```bash
-npx prisma migrate dev --name init
+npx prisma migrate dev --name phase4_gamification
 npx prisma generate
 ```
 
@@ -2130,10 +1764,11 @@ Server running on port 5000
 | Predictive Mood Forecast (3-signal model)             | ✅ Complete |
 | Personal Records & Milestones Timeline                | ✅ Complete |
 | Habit Correlation Matrix (co-completion rate)         | ✅ Complete |
+| Achievement Badges (6 badges, fire-and-forget)        | ✅ Complete |
+| Challenge System (public + private, leaderboard)      | ✅ Complete |
+| Anonymous Community Feed (HMAC upvote deduplication)  | ✅ Complete |
 
 ## 🔮 Upcoming — Build Order
-
-> Features are listed in the order they should be implemented. Each phase unlocks the next.
 
 | #   | Feature                                  | Phase             |
 | --- | ---------------------------------------- | ----------------- |
@@ -2141,9 +1776,9 @@ Server running on port 5000
 | 8   | Predictive Mood Forecast                 | ✅ Complete       |
 | 9   | Personal Records & Milestones Timeline   | ✅ Complete       |
 | 10  | Habit Correlation Matrix                 | ✅ Complete       |
-| 11  | Achievement Badges                       | 🏆 Gamification   |
-| 12  | Challenge System                         | 🏆 Gamification   |
-| 13  | Anonymous Community Feed                 | 🏆 Gamification   |
+| 11  | Achievement Badges                       | ✅ Complete       |
+| 12  | Challenge System                         | ✅ Complete       |
+| 13  | Anonymous Community Feed                 | ✅ Complete       |
 | 14  | Journal Sentiment Analysis               | 🤖 Enhanced AI    |
 | 15  | Smart Habit Suggestions                  | 🤖 Enhanced AI    |
 | 16  | Personalized AI Coach (Chat Interface)   | 🤖 Enhanced AI    |
@@ -2165,71 +1800,15 @@ Server running on port 5000
 
 # 🔮 Upcoming Features
 
-## 🔔 Phase 2 — Engagement
-
-> Retention before advanced features. These three keep users coming back daily before you've built anything else.
-
-**4. In-App Notification System** — Add a `Notification` model in PostgreSQL: `id`, `userId`, `type`, `title`, `message`, `isRead`, `createdAt`. Notification types: `STREAK_MILESTONE`, `BURNOUT_RISK_CHANGED`, `WEEKLY_SUMMARY`, `BADGE_EARNED`, `CHALLENGE_UPDATE`. Endpoints:
-
-- `GET /api/notifications?page=1&limit=20` — paginated, unread first
-- `PATCH /api/notifications/:id/read`
-- `PATCH /api/notifications/read-all`
-- `GET /api/notifications/unread-count` — lightweight count for badge display
-
-This model feeds the WebSocket layer (Phase 7) directly — build the DB layer now, real-time delivery later.
-
-**5. Weekly Email Digest** — A Saturday 8am cron job (add alongside `reminder.cron.ts`) that iterates users with `weeklyDigestOn: true` and sends a branded HTML email: average mood this week, habits completed vs target, current streaks, burnout risk trend. Use `Promise.allSettled()` — same error isolation pattern as the habit reminder cron. Add `weeklyDigestOn: Boolean @default(true)` to the `User` model.
-
-**6. Mood Check-in Reminders** — Add `moodReminderTime: String?` and `moodReminderOn: Boolean @default(false)` to the `User` model. Add `@@index([moodReminderOn, moodReminderTime])` for cron performance. Extend `reminder.cron.ts` to process mood reminders in the same tick: query users whose `moodReminderTime` matches the current `HH:MM`, check if a `MoodEntry` exists for today, send nudge email if not.
-
----
-
-## 📊 Phase 3 — Analytics ✅ Complete
-
-> All four analytics features are implemented. Zero new dependencies — pure computation on existing data.
-
-**7. ✅ Mood ↔ Habit Correlation Engine** — `GET /api/analytics/correlation`. For each active habit, computes average mood on days it was completed vs days it was skipped. Returns sorted by lift (impact) descending. See Analytics Module section for full API docs.
-
-**8. ✅ Predictive Mood Forecast** — `GET /api/mood/forecast?days=7`. Uses 30-day baseline + day-of-week adjustment + 14-day linear regression trend slope. Scores clamped to [1, 5]. Returns a `signals` breakdown per day so the frontend can explain the prediction. See Mood Module section for full API docs.
-
-**9. ✅ Personal Records & Milestones Timeline** — `GET /api/milestones`. Full timeline of behavioral achievements earned automatically as fire-and-forget side effects inside `completeHabit()` and `addMood()`. 15 milestone types across mood, habit, and achievement categories. See Milestones Module section for full API docs.
-
-**10. ✅ Habit Correlation Matrix** — `GET /api/analytics/habit-matrix`. For each pair of active habits, computes co-completion rate using a union-based denominator. Sorted by rate descending with plain-English stacking suggestions. See Analytics Module section for full API docs.
-
----
-
-## 🏆 Phase 4 — Gamification
-
-> Add these once analytics are in place — badges and challenges reference streak and milestone data.
-
-**11. Achievement Badges** — Add a `Badge` model: `id`, `userId`, `type`, `earnedAt`. Check and award badges inside `completeHabit()` and `addMood()` (async, non-blocking). Badge types and unlock conditions:
-
-| Badge         | Unlock Condition                           |
-| ------------- | ------------------------------------------ |
-| First Step    | First mood entry logged                    |
-| Week One      | 7-day mood logging streak                  |
-| Iron Will     | 30-day habit streak                        |
-| Mindful Month | Mood logged every day for a calendar month |
-| Resilient     | Burnout risk dropped from High → Low       |
-| Centurion     | 100-day habit streak                       |
-
-`GET /api/badges` returns earned badges with dates and locked badges with progress percentages.
-
-**12. Challenge System** — `Challenge` model: `title`, `description`, `targetDays`, `habitId?`, `startDate`, `endDate`, `isPublic`, `createdBy`. `ChallengeParticipant` model: `challengeId`, `userId`, `joinedAt`, `completionsCount`. Endpoints: `POST /api/challenges`, `GET /api/challenges` (public list), `POST /api/challenges/:id/join`, `GET /api/challenges/:id/leaderboard`. Hook into `completeHabit()` to increment `completionsCount` when a completion contributes to an active challenge.
-
-**13. Anonymous Community Feed** — `CommunityPost` model in MongoDB: `type` (`MILESTONE | REFLECTION`), `content`, `upvotes`, `tags[]`, `createdAt`. User identity is never stored. `POST /api/community` (authenticated, but strips identity before save), `GET /api/community` (public), `POST /api/community/:id/upvote`.
-
----
-
 ## 🤖 Phase 5 — Enhanced AI
 
 > Build on the existing `ai.prompt.ts` infrastructure. The data pre-processing layer is already there.
 
 **14. Journal Sentiment Analysis** — After `JournalModel.create()` in `addMood()`, fire an async Groq call (don't await — non-blocking). Prompt: extract `sentimentScore` (-1.0 to 1.0) and up to 5 theme tags from the journal text, respond in JSON. Update the journal document with `sentimentScore` and `themes[]`. New endpoint: `GET /api/mood/sentiment/trends` — weekly average sentiment vs weekly mood score.
 
-**15. Smart Habit Suggestions** — `GET /api/ai/suggestions`. Feed the existing daily insights + current habits + burnout risk level into a Groq prompt. Return 3 habit suggestions with `title`, `frequency`, `category`, `rationale`, and `expectedMoodImpact`. Cache using the same SHA-256 hash strategy as AI insights — only regenerate when behavioral data changes.
+**15. Smart Habit Suggestions** — `GET /api/ai/suggestions`. Feed the existing daily insights + current habits + burnout risk level into a Groq prompt. Return 3 habit suggestions with `title`, `frequency`, `category`, `rationale`, and `expectedMoodImpact`. Cache using the same SHA-256 hash strategy as AI insights.
 
-**16. Personalized AI Coach (Chat Interface)** — `POST /api/ai/chat` with body `{ message, conversationId? }`. Store conversation history in a new MongoDB model `AiConversation`: `userId`, `messages: [{ role, content, timestamp }]`. Inject the user's last 90-day behavioral summary into the system prompt on every call (same pre-processing as `ai.prompt.ts`). Include up to the last 10 messages for context. Gate behind Pro plan.
+**16. Personalized AI Coach (Chat Interface)** — `POST /api/ai/chat` with body `{ message, conversationId? }`. Store conversation history in a new MongoDB model `AiConversation`: `userId`, `messages: [{ role, content, timestamp }]`. Inject the user's last 90-day behavioral summary into the system prompt on every call. Include up to the last 10 messages for context. Gate behind Pro plan.
 
 ---
 
@@ -2237,41 +1816,39 @@ This model feeds the WebSocket layer (Phase 7) directly — build the DB layer n
 
 > Build after monetization is stable. Enterprise plan must exist before org features launch.
 
-**17. Organizations + Members** — `Organization` model: `id`, `name`, `ownerId`, `createdAt`. `OrgMember` model: `orgId`, `userId`, `role` (`OWNER | ADMIN | MEMBER`), `joinedAt`. Endpoints: `POST /api/orgs`, `POST /api/orgs/:id/invite` (sends invite email via existing mailer), `POST /api/orgs/join?token=...`, `DELETE /api/orgs/:id/members/:userId`. Add `requireOrgRole(role)` middleware for all org-scoped routes.
+**17. Organizations + Members** — `Organization` model: `id`, `name`, `ownerId`, `createdAt`. `OrgMember` model: `orgId`, `userId`, `role` (`OWNER | ADMIN | MEMBER`), `joinedAt`. Endpoints: `POST /api/orgs`, `POST /api/orgs/:id/invite`, `POST /api/orgs/join?token=...`, `DELETE /api/orgs/:id/members/:userId`. Add `requireOrgRole(role)` middleware for all org-scoped routes.
 
-**18. Team Mood Dashboard** — `GET /api/teams/:id/mood/overview`. Aggregate mood data across all org members: team average mood this week, percentage at High burnout risk, week-over-week trend. Data is anonymized by default — no individual names unless the member has opted in via a profile flag. Require a minimum of 3 members before returning any individual breakdowns. Gate behind Enterprise plan.
+**18. Team Mood Dashboard** — `GET /api/teams/:id/mood/overview`. Aggregate mood data across all org members: team average mood this week, percentage at High burnout risk, week-over-week trend. Data is anonymized by default. Require a minimum of 3 members before returning any individual breakdowns. Gate behind Enterprise plan.
 
-**19. Manager Burnout Alerts** — Add a weekly Monday 9am cron job (alongside the existing reminder cron). For each org: run team burnout aggregation, compare to last week's snapshot stored in an `OrgMoodSnapshot` model. If High-risk member count increased by more than 20%, send a digest email to all org admins via the existing mailer.
+**19. Manager Burnout Alerts** — Weekly Monday 9am cron job. For each org: run team burnout aggregation, compare to last week's snapshot in `OrgMoodSnapshot`. If High-risk member count increased by more than 20%, send a digest email to all org admins.
 
 ---
 
 ## 🔧 Phase 7 — Infrastructure
 
-> These are ongoing — Redis and GDPR deletion can be added at any point. WebSockets and webhooks come last.
+**20. Redis Caching Layer** — `npm install ioredis`. Cache keys: `mood:analytics:{userId}`, `mood:streak:{userId}`, `habit:streak:{habitId}`. TTL: 5 minutes for analytics and streaks, 1 hour for heatmaps. Invalidate on write. Add `X-Cache: HIT | MISS` header to analytics responses.
 
-**20. Redis Caching Layer** — `npm install ioredis`. Cache keys: `mood:analytics:{userId}`, `mood:streak:{userId}`, `mood:heatmap:{userId}:{days}`, `habit:streak:{habitId}`, `habit:heatmap:{habitId}:{days}`. TTL: 5 minutes for analytics and streaks, 1 hour for heatmaps. Invalidate in `addMood()`, `updateMood()`, `deleteMood()`, `completeHabit()`, `undoLastCompletion()`. Add `X-Cache: HIT | MISS` header to analytics responses for debugging.
+**21. Account Deletion (GDPR Right to Erasure)** — `DELETE /api/auth/account` (requires password confirmation). Flow: verify password → delete all MongoDB `JournalEntry` and `CommunityPost` docs for `userId` → delete `User` row in Postgres (Cascade handles related records) → revoke all refresh tokens. Send a 24-hour warning email first.
 
-**21. Account Deletion (GDPR Right to Erasure)** — `DELETE /api/auth/account` (requires password confirmation in body). Flow: verify password → delete all MongoDB `JournalEntry` docs for `userId` → delete `User` row in Postgres (Prisma `onDelete: Cascade` handles `MoodEntry`, `Habit`, `HabitLog`, `AiInsight`) → revoke all refresh tokens. Send a 24-hour warning email first; add `scheduledDeletion: DateTime?` to `User` and process via a daily cron rather than immediately.
+**22. Data Export (CSV / JSON)** — `GET /api/export/mood?format=csv|json` and `GET /api/export/habits?format=csv|json`. Rate-limit to 3 exports per 24 hours per user.
 
-**22. Data Export (CSV / JSON)** — `GET /api/export/mood?format=csv|json` and `GET /api/export/habits?format=csv|json`. For CSV, use a streaming response with `Content-Disposition: attachment` header. Rate-limit to 3 exports per 24 hours per user (exports are expensive — full table scans).
+**23. Audit Log** — `UserEvent` model: `userId`, `action`, `metadata JSON`, `ipAddress`, `createdAt`. Log on: login, register, plan upgraded, data exported, account deleted. Audit logs are never deleted.
 
-**23. Audit Log** — `UserEvent` model: `userId`, `action`, `metadata JSON`, `ipAddress`, `createdAt`. Log on: login, register, plan upgraded, data exported, account deleted, API key created. `GET /api/admin/users/:id/events` (admin-only). Audit logs are never deleted — even when the user account is deleted, keep the records.
+**24. WebSocket Real-time Updates** — Socket.io. Emit events to the user's socket room on: `habit.completed`, `streak.milestone`, `badge.earned`, `notification.created`. The `Notification` model from Phase 2 already has the data structure — WebSocket is just the delivery layer.
 
-**24. WebSocket Real-time Updates** — Socket.io. Emit events to the user's socket room on: `habit.completed`, `streak.milestone`, `badge.earned`, `notification.created`. The `Notification` model from Phase 2 already has the data structure — WebSocket is just the delivery layer. Authenticate socket connections using the existing JWT.
+**25. API Key Management** — `ApiKey` model: `id`, `userId`, `keyHash` (SHA-256), `name`, `lastUsedAt`. `POST /api/developer/keys` — generate key, return raw value once, store only the hash. Gate behind Pro/Enterprise plan.
 
-**25. API Key Management** — `ApiKey` model: `id`, `userId`, `keyHash` (SHA-256), `name`, `lastUsedAt`, `createdAt`, `expiresAt?`. `POST /api/developer/keys` — generate key, return raw value once, store only the hash. `DELETE /api/developer/keys/:id` — revoke. Add API key authentication middleware as an alternative to Bearer JWT on all routes. Gate behind Pro/Enterprise plan.
+**26. Webhook System** — `Webhook` model: `userId`, `url`, `events[]`, `secret`, `isActive`. Events: `mood.created`, `habit.completed`, `habit.streak.milestone`, `burnout.risk.changed`, `badge.earned`. Retry 3 times with exponential backoff on failure.
 
-**26. Webhook System** — `Webhook` model: `userId`, `url`, `events[]`, `secret`, `isActive`. Events: `mood.created`, `habit.completed`, `habit.streak.milestone`, `burnout.risk.changed`, `badge.earned`. On each triggering event, POST a signed `HMAC-SHA256` payload to the registered URL. Retry 3 times with exponential backoff on failure. `GET /api/developer/webhooks/:id/deliveries` for delivery history.
-
-**27. Public Developer Portal** — A static `/developer` route serving an HTML page with: API key management UI, interactive endpoint explorer, code examples in Node.js / Python / curl, rate limit dashboard, and webhook event catalog. This is what makes PulseBloom a platform rather than just an app.
+**27. Public Developer Portal** — Static `/developer` route: API key management UI, interactive endpoint explorer, code examples in Node.js / Python / curl, rate limit dashboard.
 
 ---
 
 ## 🚀 Phase 8 — Deployment
 
-**28. Docker Containerization** — `docker-compose.yml` with services: `app` (Node.js), `postgres`, `mongo`, `redis`. Add health checks on all services. Multi-stage Dockerfile: `builder` stage compiles TypeScript, `runner` stage copies compiled output only.
+**28. Docker Containerization** — `docker-compose.yml` with services: `app` (Node.js), `postgres`, `mongo`, `redis`. Multi-stage Dockerfile: `builder` compiles TypeScript, `runner` copies compiled output only.
 
-**29. AWS Deployment** — ECS Fargate for the Node app, RDS PostgreSQL, DocumentDB (MongoDB-compatible), ElastiCache Redis. Store secrets in AWS Secrets Manager and inject via environment variables at task definition level.
+**29. AWS Deployment** — ECS Fargate for the Node app, RDS PostgreSQL, DocumentDB, ElastiCache Redis. Store secrets in AWS Secrets Manager.
 
 ---
 

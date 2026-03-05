@@ -479,6 +479,9 @@ router.patch("/:id/restore", protect, restoreHabitController);
  *       Weekly habits: one completion per ISO week (Monday normalized).
  *       Returns the log entry and current streak.
  *       If a streak milestone (7, 14, 30, etc.) is hit, includes milestone data.
+ *       Side effects (non-blocking, fire-and-forget): awards IRON_WILL badge
+ *       if streak >= 30, CENTURION badge if streak >= 100, and advances progress
+ *       on all active challenges linked to this habit. These never affect the response.
  *     tags: [Habits]
  *     security:
  *       - bearerAuth: []
