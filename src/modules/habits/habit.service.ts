@@ -32,6 +32,8 @@ import {
   buildStreakMilestoneNotification,
 } from "../notifications/notification.service";
 import { checkAndAwardHabitStreakMilestone } from "../milestones/milestone.service";
+import { checkAndAwardHabitBadges } from "../badges/badge.service"; // ← PHASE 4
+import { advanceChallengeProgressForHabit } from "../challenges/challenge.service"; // ← PHASE 4
 
 // ─────────────────────────────────────────────────────────────────
 // CONSTANTS
@@ -214,6 +216,10 @@ export const restoreHabit = async (habitId: string, userId: string) => {
  * After creating the log, checks if the new streak hits a milestone.
  * If yes, includes milestone data in the response so the frontend
  * can trigger a celebration animation.
+ *
+ * Phase 4 additions (fire-and-forget, after streak is calculated):
+ *  - checkAndAwardHabitBadges  → awards IRON_WILL (30d) / CENTURION (100d)
+ *  - advanceChallengeProgressForHabit → increments any linked active challenge
  */
 export const completeHabit = async (
   habitId: string,
@@ -235,7 +241,9 @@ export const completeHabit = async (
 
   try {
     const log = await createHabitLog(habitId, date, note);
-    // Check if this completion triggered a streak milestone
+
+    // Streak must be calculated BEFORE all fire-and-forget calls
+    // since badge + milestone checks depend on the current streak value
     const { currentStreak } = await calculateHabitStreak(habitId, userId);
     const milestone = STREAK_MILESTONES.includes(currentStreak)
       ? currentStreak
@@ -247,10 +255,6 @@ export const completeHabit = async (
     //   A notification DB failure must NEVER cause the completion
     //   response to fail. The habit IS marked complete — the
     //   notification is a secondary side-effect.
-    //
-    // The .catch(() => {}) is redundant because createNotification()
-    // already catches internally and logs, but it makes the intent
-    // explicit and silences any TypeScript unhandled-promise warnings.
     if (milestone !== null) {
       const { title, message } = buildStreakMilestoneNotification(
         habit.title,
@@ -264,12 +268,35 @@ export const completeHabit = async (
         relatedId: habitId,
       }).catch(() => {});
 
+      // ── Milestone award (fire-and-forget) ────────────────────
       checkAndAwardHabitStreakMilestone(userId, habitId, currentStreak).catch(
         () => {},
       );
-      // ↑ Fire-and-forget — same pattern as createNotification above.
-      //   A milestone DB failure must NEVER fail the habit completion response.
     }
+
+    // ── Phase 4: Badge award (fire-and-forget) ───────────────────
+    //
+    // Checks IRON_WILL (streak >= 30) and CENTURION (streak >= 100).
+    // Called on EVERY completion — badge.service.ts internally
+    // checks hasBadge() and skips if already awarded. No wasted DB
+    // writes after the first award.
+    //
+    // Called unconditionally (not just on milestone days) because:
+    //   - The streak threshold for a badge might land on a non-STREAK_MILESTONE day
+    //     e.g. IRON_WILL triggers at 30 which IS a milestone, but future
+    //     badges might be added at non-milestone values.
+    //   - The idempotency check in badge.service.ts is cheap (single indexed query).
+    checkAndAwardHabitBadges(userId, currentStreak, habitId).catch(() => {});
+
+    // ── Phase 4: Challenge progress (fire-and-forget) ────────────
+    //
+    // Finds all active challenges linked to this habitId where the user
+    // is a participant and increments their completionsCount by 1.
+    // Fires a CHALLENGE_UPDATE notification if the challenge is now complete.
+    //
+    // Safe to call on every completion — getActiveChallengesForHabit()
+    // returns [] if no challenges are linked, so it's a no-op.
+    advanceChallengeProgressForHabit(habitId, userId).catch(() => {});
 
     return {
       message: "Habit marked as completed",

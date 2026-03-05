@@ -11,7 +11,7 @@ import rateLimit from "express-rate-limit";
 // ─────────────────────────────────────────────────────────────────
 export const globalLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 100,
+  max: 1000,
   standardHeaders: true, // Returns RateLimit-* headers (RFC 6585)
   legacyHeaders: false, // Disable X-RateLimit-* legacy headers
   message: {
@@ -39,7 +39,7 @@ export const globalLimiter = rateLimit({
 // ─────────────────────────────────────────────────────────────────
 export const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 10,
+  max: 100,
   standardHeaders: true,
   legacyHeaders: false,
   skipSuccessfulRequests: true,

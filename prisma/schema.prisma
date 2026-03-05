@@ -109,7 +109,10 @@ model User {
   passwordResets     PasswordReset[]
   subscription       Subscription?
   notifications      Notification[]
-  milestones         Milestone[]          // ← NEW
+  milestones         Milestone[]   
+  badges       Badge[]
+  challengesCreated  Challenge[]            @relation("ChallengeCreator")
+  challengeParticipations ChallengeParticipant[]
 
   @@index([moodReminderOn, moodReminderTime])
 }
@@ -335,4 +338,181 @@ model AiInsight {
 
   @@unique([userId])
   @@index([userId])
+}
+
+
+
+// ─────────────────────────────────────────────────────────────────
+// PHASE 4 — GAMIFICATION SCHEMA ADDITIONS
+//
+// Add these blocks into your existing schema.prisma.
+//
+// Migration command after adding:
+//   npx prisma migrate dev --name phase4_gamification
+//
+// WHAT CHANGES:
+//   1. New enum: BadgeType          → all 6 badge identifiers
+//   2. New model: Badge             → earned badge records per user
+//   3. New model: Challenge         → user-created or system challenges
+//   4. New model: ChallengeParticipant → join table (user ↔ challenge)
+//   5. User model additions:        → add `badges` and `challenges` relations
+//   6. NotificationType additions:  → BADGE_EARNED & CHALLENGE_UPDATE already exist ✅
+//
+// ─────────────────────────────────────────────────────────────────
+
+// ─────────────────────────────────────────────────────────────────
+// BADGE TYPE ENUM
+//
+// WHY AN ENUM (not a string)?
+//   Enums are enforced at the DB level — impossible to insert a typo.
+//   Adding a new badge = add the enum value here + add a check in
+//   badge.service.ts. Nothing else changes.
+//
+// BADGE UNLOCK CONDITIONS (enforced in badge.service.ts):
+//   FIRST_STEP      → first mood entry logged
+//   WEEK_ONE        → 7-day consecutive mood logging streak
+//   IRON_WILL       → 30-day streak on any single habit
+//   MINDFUL_MONTH   → mood logged every day for a full calendar month
+//   RESILIENT       → burnout risk dropped from High → Low
+//   CENTURION       → 100-day streak on any single habit
+// ─────────────────────────────────────────────────────────────────
+enum BadgeType {
+  FIRST_STEP
+  WEEK_ONE
+  IRON_WILL
+  MINDFUL_MONTH
+  RESILIENT
+  CENTURION
+}
+
+// ─────────────────────────────────────────────────────────────────
+// BADGE
+//
+// One row per badge earned per user. A user can earn each badge
+// only once — enforced by @@unique([userId, type]).
+//
+// WHY NOT ON USER MODEL?
+//   Badges are a many-per-user relation. A separate table lets us:
+//   - Store earnedAt per badge
+//   - Add new badges without altering the User table
+//   - Query "who earned IRON_WILL?" efficiently via the type index
+//
+// relatedId: optional contextual link — e.g. for IRON_WILL it stores
+//   the habitId so the badge detail screen can deep-link to that habit.
+//   For FIRST_STEP or WEEK_ONE there's no specific entity to link.
+//
+// Indexes:
+//   [userId]           → GET /api/badges for one user (primary use)
+//   [userId, type]     → idempotency check before awarding
+//   [type]             → leaderboard / admin queries ("all CENTURION holders")
+// ─────────────────────────────────────────────────────────────────
+model Badge {
+  id        String    @id @default(uuid())
+  userId    String
+  type      BadgeType
+  relatedId String?   // e.g. habitId for IRON_WILL / CENTURION
+  earnedAt  DateTime  @default(now())
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, type])
+  @@index([userId])
+  @@index([userId, type])
+  @@index([type])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// CHALLENGE
+//
+// A challenge is a time-boxed habit goal that one user creates and
+// others can join. The creator is also a participant (auto-joined).
+//
+// FIELD DECISIONS:
+//
+//   habitId: optional — a challenge can be habit-specific ("do 20
+//     push-ups daily for 30 days") or free-form ("any habit, 30 days").
+//     When set, ChallengeParticipant.completionsCount increments each
+//     time the linked habit is completed by that participant.
+//     When null, participants manually track via POST /complete.
+//
+//   targetDays: the challenge duration. Combined with startDate/endDate
+//     to calculate progress percentage on the frontend.
+//
+//   isPublic: true  → appears in GET /api/challenges (community list)
+//             false → invite-only, accessible only by direct link/code
+//
+//   isActive: soft-disable without deleting. Set to false when
+//     endDate passes (via a cron job in a future phase).
+//
+//   joinCode: 8-char random code for private challenges. Frontend
+//     shows a "Join with code" input. NOT a security token — just
+//     a friendly invite code.
+//
+// Indexes:
+//   [createdBy]            → "my challenges" query
+//   [isPublic, isActive]   → public challenges list (most common query)
+//   [habitId]              → when completing a habit, find linked challenges
+// ─────────────────────────────────────────────────────────────────
+model Challenge {
+  id          String   @id @default(uuid())
+  title       String
+  description String?
+  habitId     String?  // optional — links to a specific habit
+  targetDays  Int
+  startDate   DateTime
+  endDate     DateTime
+  isPublic    Boolean  @default(true)
+  isActive    Boolean  @default(true)
+  joinCode    String   @unique // 8-char random code for private invite
+  createdBy   String   // userId of creator
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  creator      User                   @relation("ChallengeCreator", fields: [createdBy], references: [id], onDelete: Cascade)
+  participants ChallengeParticipant[]
+
+  @@index([createdBy])
+  @@index([isPublic, isActive])
+  @@index([habitId])
+}
+
+// ─────────────────────────────────────────────────────────────────
+// CHALLENGE PARTICIPANT
+//
+// Join table between User and Challenge.
+// One row per (user, challenge) pair.
+//
+// completionsCount: incremented each time the user completes
+//   the linked habit (or manually marks a day complete).
+//   Progress % = (completionsCount / targetDays) × 100
+//
+// isCompleted: set to true when completionsCount >= targetDays.
+//   Triggers BADGE_EARNED notification and badge award check.
+//
+// completedAt: null until isCompleted = true. Stored so the
+//   leaderboard can sort by who finished first.
+//
+// @@unique([challengeId, userId]) — one entry per user per challenge.
+//   Prevents double-joining. DB-level safety net against race conditions.
+//
+// Indexes:
+//   [userId]       → "my joined challenges" query
+//   [challengeId]  → leaderboard for a specific challenge
+// ─────────────────────────────────────────────────────────────────
+model ChallengeParticipant {
+  id               String    @id @default(uuid())
+  challengeId      String
+  userId           String
+  completionsCount Int       @default(0)
+  isCompleted      Boolean   @default(false)
+  completedAt      DateTime?
+  joinedAt         DateTime  @default(now())
+
+  challenge Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([challengeId, userId])
+  @@index([userId])
+  @@index([challengeId])
 }

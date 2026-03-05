@@ -9,10 +9,13 @@ import {
   getMoodScoresInRange,
   getMoodEntriesForMonth,
   getMoodScoresWithTimestamp,
+  checkFullMonthMoodCoverage, // ← PHASE 4: new repository function (see bottom of file)
 } from "./mood.repository";
 import { JournalModel } from "./mood.mongo";
 import { CreateMoodInput, UpdateMoodInput } from "./mood.validation";
 import { checkAndAwardMoodMilestones } from "../milestones/milestone.service";
+import { checkAndAwardMoodBadges } from "../badges/badge.service"; // ← PHASE 4
+import { prisma } from "../../config/db"; // ← PHASE 4
 
 // ─────────────────────────────────────────────────────────────────
 // MOOD SERVICE — Business Logic Layer
@@ -85,6 +88,34 @@ const assertMoodOwnership = async (id: string, userId: string) => {
   return entry;
 };
 
+// ─────────────────────────────────────────────────────────────────
+// PHASE 4: PRIVATE HELPER — computeBurnoutLevel
+//
+// A lightweight version of calculateBurnoutRisk() that returns just
+// the risk level string ("Low" | "Moderate" | "High").
+//
+// Used inside addMood() to detect if burnout risk dropped from
+// High → Low after the new entry is added, which triggers the
+// RESILIENT badge award.
+//
+// WHY a separate helper instead of calling calculateBurnoutRisk()?
+//   calculateBurnoutRisk() is a public async function that hits the
+//   DB. Here we already have the scores in memory (from getMoodScores),
+//   so we use this pure synchronous version to avoid an extra DB
+//   round-trip. Same formula — different input source.
+// ─────────────────────────────────────────────────────────────────
+const computeBurnoutLevel = (scores: number[]): "Low" | "Moderate" | "High" => {
+  if (scores.length < 3) return "Low";
+  const avg = scores.reduce((a, b) => a + b, 0) / scores.length;
+  const lowMoodDays = scores.filter((s) => s <= 2).length;
+  const volatility = Math.max(...scores) - Math.min(...scores);
+  const riskScore =
+    lowMoodDays * 2 + Math.max(0, 3.0 - avg) * 3 + volatility * 1.5;
+  if (riskScore >= 10) return "High";
+  if (riskScore >= 5) return "Moderate";
+  return "Low";
+};
+
 // ─── CREATE ───────────────────────────────────────────────────────
 
 /**
@@ -94,10 +125,20 @@ const assertMoodOwnership = async (id: string, userId: string) => {
  * 1. If journalText is provided → save to MongoDB first (with placeholder moodEntryId)
  * 2. Insert MoodEntry row in PostgreSQL (with journalId linking to Mongo)
  * 3. Update the Mongo document with the real PostgreSQL id (back-reference)
+ * 4. Fire-and-forget: milestone checks (existing)
+ * 5. Fire-and-forget: badge checks (Phase 4)
  *
  * Why Mongo first?
  * If Postgres insert fails, the orphaned Mongo doc has no FK consequence.
  * If Mongo fails, we bail before writing to Postgres — no partial state.
+ *
+ * Phase 4 badge checks require three extra pieces of data:
+ *   totalMoodCount        → FIRST_STEP badge (count === 1)
+ *   burnoutDroppedToLow   → RESILIENT badge (High → Low transition)
+ *   loggedEveryDayThisMonth → MINDFUL_MONTH badge (full calendar month)
+ *
+ * All three are computed asynchronously inside the fire-and-forget
+ * block — they never delay the primary mood response.
  */
 export const addMood = async (input: CreateMoodInput, userId: string) => {
   let journalId: string | undefined;
@@ -123,15 +164,80 @@ export const addMood = async (input: CreateMoodInput, userId: string) => {
   if (journalId) {
     await JournalModel.findByIdAndUpdate(journalId, { moodEntryId: mood.id });
   }
-  // Fire-and-forget milestone checks — must not block the mood response
-  // currentMoodStreak is computed lazily inside checkAndAwardMoodMilestones
+
+  // ── Fire-and-forget: milestone checks (existing) ─────────────
+  // currentMoodStreak is computed lazily inside checkAndAwardMoodMilestones.
   // We need the streak to check MOOD_STREAK milestones.
-  // Import calculateMoodStreak from this same file and call it here:
   calculateMoodStreak(userId)
     .then(({ currentStreak }) =>
       checkAndAwardMoodMilestones(userId, currentStreak),
     )
     .catch(() => {}); // swallow all errors — secondary side effect
+
+  // ── Fire-and-forget: badge checks (Phase 4) ──────────────────
+  //
+  // WHY run in a separate async IIFE (not chained to the streak promise above)?
+  //   Badge checks need different data than milestone checks:
+  //     - totalMoodCount  (Prisma count query)
+  //     - burnoutDroppedToLow (requires BOTH pre-entry and post-entry scores)
+  //     - loggedEveryDayThisMonth (new repository function)
+  //
+  //   Chaining everything onto the streak promise would make the
+  //   promise chain harder to read and debug. A self-contained async
+  //   IIFE is cleaner and fails independently.
+  //
+  // WHY NOT await these?
+  //   Same reason as milestones: badge failures must NEVER crash addMood().
+  //   The mood IS saved — badges are a secondary reward layer.
+  (async () => {
+    try {
+      // ── Data fetch (all in parallel for speed) ────────────────
+      const [totalMoodCount, streak, recentScoreRows, monthCoverage] =
+        await Promise.all([
+          // FIRST_STEP: total entries ever — is this the very first?
+          prisma.moodEntry.count({ where: { userId } }),
+
+          // WEEK_ONE: current streak (same computation as milestone check above,
+          // but we need the value here — Promise.all avoids a second DB call
+          // by running in parallel with the other queries)
+          calculateMoodStreak(userId),
+
+          // RESILIENT: last 14 mood scores to detect burnout level change.
+          // We use a raw number array (not the full record) for computeBurnoutLevel.
+          getMoodScores(userId).then((rows) =>
+            rows.slice(0, 14).map((r: any) => r.moodScore as number),
+          ),
+
+          // MINDFUL_MONTH: did the user log every day of the current calendar month?
+          checkFullMonthMoodCoverage(userId),
+        ]);
+
+      // ── Burnout transition detection ──────────────────────────
+      //
+      // recentScoreRows[0] is the entry we JUST inserted (newest first).
+      // prevScores = all entries EXCEPT the newest = the state before this entry.
+      // currScores = all 14 entries including the newest = current state.
+      //
+      // If prevScores showed High burnout and currScores show Low burnout,
+      // this entry tipped the user out of burnout → award RESILIENT badge.
+      const prevScores = recentScoreRows.slice(1); // exclude newest
+      const currScores = recentScoreRows; // include newest
+
+      const prevRisk = computeBurnoutLevel(prevScores);
+      const currRisk = computeBurnoutLevel(currScores);
+      const burnoutDroppedToLow = prevRisk === "High" && currRisk === "Low";
+
+      // ── Award badges ──────────────────────────────────────────
+      await checkAndAwardMoodBadges(userId, {
+        totalMoodCount,
+        currentMoodStreak: streak.currentStreak,
+        burnoutDroppedToLow,
+        loggedEveryDayThisMonth: monthCoverage,
+      });
+    } catch {
+      // Silent failure — badge check errors never surface to the caller
+    }
+  })();
 
   return mood;
 };
@@ -467,7 +573,7 @@ export const calculateBurnoutRisk = async (
   };
 };
 
-// ─── NEW: STREAK ──────────────────────────────────────────────────
+// ─── STREAK ───────────────────────────────────────────────────────
 
 /**
  * Calculate the user's current mood logging streak.
@@ -565,7 +671,7 @@ export const calculateMoodStreak = async (userId: string) => {
   };
 };
 
-// ─── NEW: HEATMAP ─────────────────────────────────────────────────
+// ─── HEATMAP ──────────────────────────────────────────────────────
 
 /**
  * Generate GitHub-style mood heatmap data.
@@ -622,7 +728,7 @@ export const generateMoodHeatmap = async (userId: string, days: number) => {
   return { heatmap, totalDays: days, loggedDays: scoresByDate.size };
 };
 
-// ─── NEW: MONTHLY SUMMARY ─────────────────────────────────────────
+// ─── MONTHLY SUMMARY ──────────────────────────────────────────────
 
 /**
  * Monthly calendar summary — one entry per day of the month.
@@ -713,7 +819,7 @@ export const getMoodMonthlySummary = async (
   };
 };
 
-// ─── NEW: DAILY INSIGHTS (Day-of-week + Time-of-day patterns) ─────
+// ─── DAILY INSIGHTS (Day-of-week + Time-of-day patterns) ──────────
 
 /**
  * Behavioural pattern insights — when do you feel best and worst?
@@ -929,7 +1035,7 @@ export const getMoodForecast = async (userId: string, days: number) => {
   }
 
   // ── Build forecast array ───────────────────────────────────────
-  const DAY_NAMES = [
+  const FORECAST_DAY_NAMES = [
     "Sunday",
     "Monday",
     "Tuesday",
@@ -988,7 +1094,7 @@ export const getMoodForecast = async (userId: string, days: number) => {
 
     forecast.push({
       date: dateStr,
-      dayOfWeek: DAY_NAMES[dow],
+      dayOfWeek: FORECAST_DAY_NAMES[dow],
       predictedScore,
       label: getMoodLabel(predictedScore),
       signals: {
@@ -1011,3 +1117,4 @@ export const getMoodForecast = async (userId: string, days: number) => {
     message: `Forecast generated using your 30-day baseline, day-of-week patterns, and recent trend.`,
   };
 };
+

@@ -1,4 +1,6 @@
 // src/app.ts
+// Updated for Phase 4 — Gamification
+// Changes from previous version marked with ← PHASE 4
 
 import express from "express";
 import cors from "cors";
@@ -15,6 +17,9 @@ import billingRoutes from "./modules/billing/billing.routes";
 import notificationRoutes from "./modules/notifications/notification.routes";
 import analyticsRoutes from "./modules/analytics/analytics.routes";
 import milestoneRoutes from "./modules/milestones/milestone.routes";
+import badgeRoutes from "./modules/badges/badge.routes"; // ← PHASE 4
+import challengeRoutes from "./modules/challenges/challenge.routes"; // ← PHASE 4
+import communityRoutes from "./modules/community/community.routes"; // ← PHASE 4
 
 const app = express();
 
@@ -60,6 +65,9 @@ app.use("/api/billing", billingRoutes);
 app.use("/api/notifications", notificationRoutes);
 app.use("/api/analytics", analyticsRoutes);
 app.use("/api/milestones", milestoneRoutes);
+app.use("/api/badges", badgeRoutes); // ← PHASE 4
+app.use("/api/challenges", challengeRoutes); // ← PHASE 4
+app.use("/api/community", communityRoutes); // ← PHASE 4
 
 // ─────────────────────────────────────────────────────────────────
 // GLOBAL ERROR HANDLER — must always be the LAST middleware

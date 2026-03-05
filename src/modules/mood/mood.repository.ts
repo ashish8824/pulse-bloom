@@ -223,3 +223,33 @@ export const getMoodScoresWithTimestamp = async (
     orderBy: { createdAt: "asc" },
   });
 };
+
+export const checkFullMonthMoodCoverage = async (
+  userId: string,
+): Promise<boolean> => {
+  const now = new Date();
+  const year = now.getUTCFullYear();
+  const month = now.getUTCMonth();
+  const today = now.getUTCDate();
+
+  const entries = await prisma.moodEntry.findMany({
+    where: {
+      userId,
+      createdAt: {
+        gte: new Date(Date.UTC(year, month, 1)),
+        lte: new Date(Date.UTC(year, month, today, 23, 59, 59)),
+      },
+    },
+    select: { createdAt: true },
+  });
+
+  const loggedDays = new Set(
+    entries.map((e) => e.createdAt.toISOString().split("T")[0]),
+  );
+
+  for (let d = 1; d <= today; d++) {
+    const dateStr = `${year}-${String(month + 1).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
+    if (!loggedDays.has(dateStr)) return false;
+  }
+  return true;
+};
