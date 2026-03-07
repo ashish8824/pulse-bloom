@@ -277,12 +277,12 @@ A 6-digit OTP is sent to the registered email. It expires in **15 minutes** and 
 
 ```json
 {
-  "message": "Email verified successfully. Welcome to PulseBloom!",
   "user": {
     "id": "uuid",
     "email": "ashish@example.com",
     "name": "Ashish Anand",
-    "isVerified": true
+    "isVerified": true,
+    "plan": "free"
   },
   "accessToken": "eyJhbGci...",
   "refreshToken": "a1b2c3d4...64hexchars",

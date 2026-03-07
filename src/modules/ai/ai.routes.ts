@@ -254,7 +254,7 @@ router.get(
 router.post(
   "/chat",
   protect,
-  // checkPlanLimit("ai_insights"),
+  checkPlanLimit("ai_insights"),
   getChatResponseController,
 );
 

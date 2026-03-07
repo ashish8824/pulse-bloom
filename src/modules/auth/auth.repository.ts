@@ -15,7 +15,19 @@ export const createUser = async (data: {
 };
 
 export const findUserByEmail = async (email: string) => {
-  return prisma.user.findUnique({ where: { email } });
+  return prisma.user.findUnique({
+    where: { email },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      password: true,
+      isVerified: true,
+      plan: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
 };
 
 export const findUserById = async (userId: string) => {
@@ -34,6 +46,7 @@ export const findUserById = async (userId: string) => {
       weeklyDigestOn: true,
       moodReminderOn: true,
       moodReminderTime: true,
+      plan: true,
     },
   });
 };
@@ -42,6 +55,13 @@ export const markUserVerified = async (userId: string) => {
   return prisma.user.update({
     where: { id: userId },
     data: { isVerified: true },
+    select: {
+      id: true,
+      email: true,
+      name: true,
+      isVerified: true,
+      plan: true,
+    },
   });
 };
 

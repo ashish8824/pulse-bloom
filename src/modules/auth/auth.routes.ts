@@ -134,6 +134,7 @@ const router = Router();
  *             email:      { type: string }
  *             name:       { type: string }
  *             isVerified: { type: boolean }
+ *             plan:       { type: string, example: "FREE", enum: [FREE, PRO, ENTERPRISE] }
  *         accessToken:                 { type: string }
  *         refreshToken:                { type: string }
  *         accessTokenExpiresInSeconds: { type: integer, example: 840 }

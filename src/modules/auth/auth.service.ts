@@ -52,7 +52,13 @@ const hoursFromNow = (hours: number): Date =>
 const generateOTP = (): string => crypto.randomInt(100000, 999999).toString();
 
 const buildAuthResponse = (
-  user: { id: string; email: string; name: string; isVerified: boolean },
+  user: {
+    id: string;
+    email: string;
+    name: string;
+    isVerified: boolean;
+    plan: string;
+  },
   accessToken: string,
   refreshToken: string,
 ) => ({
@@ -61,6 +67,7 @@ const buildAuthResponse = (
     email: user.email,
     name: user.name,
     isVerified: user.isVerified,
+    plan: user.plan,
   },
   accessToken,
   refreshToken,
@@ -143,6 +150,7 @@ export const verifyEmail = async (email: string, otp: string) => {
         email: updatedUser.email,
         name: updatedUser.name,
         isVerified: true,
+        plan: updatedUser.plan,
       },
       accessToken,
       refreshToken,
@@ -209,6 +217,7 @@ export const loginUser = async (email: string, password: string) => {
       email: user.email,
       name: user.name,
       isVerified: user.isVerified,
+      plan: user.plan,
     },
     accessToken,
     refreshToken,
