@@ -51,8 +51,8 @@ const router = Router();
  *       type: object
  *       required: [email, password]
  *       properties:
- *         email:    { type: string, example: "ashish@example.com" }
- *         password: { type: string, example: "MyPass@123" }
+ *         email:    { type: string, example: "7461ashishanand@gmail.com" }
+ *         password: { type: string, example: "Ritesh@1234" }
  *
  *     VerifyEmailRequest:
  *       type: object

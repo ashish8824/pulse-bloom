@@ -26,6 +26,7 @@ import {
   getMoodMonthlySummaryController,
   getMoodDailyInsightsController,
   getMoodForecastController,
+  getSentimentTrendsController, // ← PHASE 5
 } from "./mood.controller";
 
 const router = Router();
@@ -313,6 +314,82 @@ const router = Router();
  *       401:
  *         description: Unauthorized
  */
+/**
+ * @swagger
+ * /api/mood/sentiment/trends:
+ *   get:
+ *     summary: Get weekly sentiment vs mood trends (Phase 5)
+ *     description: |
+ *       Returns weekly average sentiment score (AI-extracted from journal text)
+ *       alongside weekly average mood score.
+ *
+ *       sentimentScore ranges from -1.0 (very negative) to +1.0 (very positive).
+ *       moodScore is the user's self-reported 1–5 score.
+ *
+ *       Divergent weeks (high mood score + negative sentiment) are flagged
+ *       in the summary as potential emotional suppression signals.
+ *
+ *       Requires at least 3 journal entries with completed sentiment analysis.
+ *       Sentiment is analyzed async after journal creation — new entries may
+ *       take a few seconds to appear in this endpoint.
+ *     tags: [Mood]
+ *     security:
+ *       - bearerAuth: []
+ *     responses:
+ *       200:
+ *         description: Weekly sentiment trend data
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 weeks:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       week:
+ *                         type: string
+ *                         example: "2026-W08"
+ *                       avgSentiment:
+ *                         type: number
+ *                         nullable: true
+ *                         example: -0.3
+ *                       avgMood:
+ *                         type: number
+ *                         nullable: true
+ *                         example: 3.8
+ *                       journalCount:
+ *                         type: integer
+ *                         example: 4
+ *                       moodEntryCount:
+ *                         type: integer
+ *                         example: 7
+ *                       topThemes:
+ *                         type: array
+ *                         items:
+ *                           type: string
+ *                         example: ["work", "stress", "sleep"]
+ *                 insufficientData:
+ *                   type: boolean
+ *                   example: false
+ *                 summary:
+ *                   type: object
+ *                   properties:
+ *                     totalWeeks:
+ *                       type: integer
+ *                     weeksAnalyzed:
+ *                       type: integer
+ *                     divergentWeeks:
+ *                       type: integer
+ *                     divergenceNote:
+ *                       type: string
+ *                       nullable: true
+ *       401:
+ *         description: Unauthorized
+ */
+router.get("/sentiment/trends", protect, getSentimentTrendsController);
+
 router.get("/streak", protect, getMoodStreakController);
 
 /**

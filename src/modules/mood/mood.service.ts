@@ -16,6 +16,7 @@ import { CreateMoodInput, UpdateMoodInput } from "./mood.validation";
 import { checkAndAwardMoodMilestones } from "../milestones/milestone.service";
 import { checkAndAwardMoodBadges } from "../badges/badge.service"; // ← PHASE 4
 import { prisma } from "../../config/db"; // ← PHASE 4
+import { analyzeJournalSentiment } from "../ai/sentiment.service"; // ← PHASE 5
 
 // ─────────────────────────────────────────────────────────────────
 // MOOD SERVICE — Business Logic Layer
@@ -163,6 +164,13 @@ export const addMood = async (input: CreateMoodInput, userId: string) => {
   // Close the bidirectional link: journal now knows its Postgres id
   if (journalId) {
     await JournalModel.findByIdAndUpdate(journalId, { moodEntryId: mood.id });
+
+    // ── PHASE 5: Fire-and-forget sentiment analysis ────────────
+    // analyzeJournalSentiment never throws — catches everything internally.
+    // Mood entry is fully saved at this point regardless of Groq outcome.
+    if (input.journalText) {
+      analyzeJournalSentiment(journalId, input.journalText).catch(() => {});
+    }
   }
 
   // ── Fire-and-forget: milestone checks (existing) ─────────────
@@ -1118,3 +1126,172 @@ export const getMoodForecast = async (userId: string, days: number) => {
   };
 };
 
+// ─────────────────────────────────────────────────────────────────
+// PHASE 5 — SENTIMENT TRENDS
+//
+// GET /api/mood/sentiment/trends
+//
+// Returns weekly average sentiment score alongside weekly mood score
+// so the frontend can overlay both on the same chart.
+//
+// WHY COMPARE SENTIMENT VS MOOD SCORE?
+//   moodScore (1–5) is what the USER consciously selects.
+//   sentimentScore (-1 to 1) is what their WRITING reveals.
+//   These two often diverge — e.g. someone rates mood 4/5 but their
+//   journal text reads as stressed and anxious.
+//   That divergence is behaviorally significant — it surfaces
+//   emotional suppression or self-reporting bias.
+//
+// HOW IT WORKS:
+//   1. Fetch all JournalEntry docs where sentimentScore is not null
+//      (journals still pending Groq analysis are excluded)
+//   2. Group by ISO week
+//   3. For the same weeks, fetch average moodScore from PostgreSQL
+//   4. Return both series aligned by week key
+//
+// MINIMUM DATA: 3 journals with analyzed sentimentScore.
+// ─────────────────────────────────────────────────────────────────
+
+export const getSentimentTrends = async (userId: string) => {
+  // ── Step 1: Fetch journals with analyzed sentiment ─────────────
+  // Only include docs where sentimentScore is not null.
+  // sort ascending so we process chronologically.
+  const journals = await JournalModel.find(
+    { userId, sentimentScore: { $ne: null } },
+    { sentimentScore: 1, createdAt: 1, themes: 1 },
+  )
+    .sort({ createdAt: 1 })
+    .lean();
+
+  // Minimum data guard
+  if (journals.length < 3) {
+    return {
+      weeks: [],
+      insufficientData: true,
+      message:
+        "At least 3 analyzed journal entries are needed to show sentiment trends. Keep journaling!",
+    };
+  }
+
+  // ── Step 2: Group journals by ISO week ─────────────────────────
+  const sentimentByWeek: Record<string, number[]> = {};
+  const themesByWeek: Record<string, string[]> = {};
+
+  for (const journal of journals) {
+    const weekKey = getISOWeekKey(new Date(journal.createdAt));
+    if (!sentimentByWeek[weekKey]) sentimentByWeek[weekKey] = [];
+    sentimentByWeek[weekKey].push(journal.sentimentScore as number);
+
+    // Accumulate themes for this week
+    if (!themesByWeek[weekKey]) themesByWeek[weekKey] = [];
+    themesByWeek[weekKey].push(...(journal.themes ?? []));
+  }
+
+  // ── Step 3: Fetch mood scores for the same weeks ───────────────
+  // Build date range from oldest to newest journal
+  const oldestJournal = journals[0];
+  const newestJournal = journals[journals.length - 1];
+
+  const moodRows = await getMoodScores(
+    userId,
+    new Date(oldestJournal.createdAt).toISOString().split("T")[0],
+    new Date(newestJournal.createdAt).toISOString().split("T")[0],
+  );
+
+  // Group mood scores by the same ISO week keys
+  const moodByWeek: Record<string, number[]> = {};
+  for (const row of moodRows) {
+    const weekKey = getISOWeekKey(new Date(row.createdAt));
+    if (!moodByWeek[weekKey]) moodByWeek[weekKey] = [];
+    moodByWeek[weekKey].push(row.moodScore);
+  }
+
+  // ── Step 4: Build response aligned by week ─────────────────────
+  const allWeeks = Array.from(
+    new Set([...Object.keys(sentimentByWeek), ...Object.keys(moodByWeek)]),
+  ).sort(); // chronological
+
+  const weeks = allWeeks.map((week) => {
+    const sentimentScores = sentimentByWeek[week] ?? [];
+    const moodScores = moodByWeek[week] ?? [];
+
+    // Average sentiment for this week (null if no journals)
+    const avgSentiment =
+      sentimentScores.length > 0
+        ? parseFloat(
+            (
+              sentimentScores.reduce((s, v) => s + v, 0) /
+              sentimentScores.length
+            ).toFixed(2),
+          )
+        : null;
+
+    // Average mood score for this week (null if no entries)
+    const avgMood =
+      moodScores.length > 0
+        ? parseFloat(
+            (moodScores.reduce((s, v) => s + v, 0) / moodScores.length).toFixed(
+              2,
+            ),
+          )
+        : null;
+
+    // Top 3 themes for this week (most frequent)
+    const themeFreq: Record<string, number> = {};
+    for (const theme of themesByWeek[week] ?? []) {
+      themeFreq[theme] = (themeFreq[theme] ?? 0) + 1;
+    }
+    const topThemes = Object.entries(themeFreq)
+      .sort((a, b) => b[1] - a[1])
+      .slice(0, 3)
+      .map(([theme]) => theme);
+
+    return {
+      week,
+      avgSentiment,
+      avgMood,
+      journalCount: sentimentScores.length,
+      moodEntryCount: moodScores.length,
+      topThemes,
+    };
+  });
+
+  // ── Step 5: Compute divergence insight ─────────────────────────
+  // Find weeks where user reported high mood BUT sentiment was negative.
+  // This is the most actionable insight from this endpoint.
+  const divergentWeeks = weeks.filter(
+    (w) =>
+      w.avgMood !== null &&
+      w.avgSentiment !== null &&
+      w.avgMood >= 3.5 && // reported feeling good
+      w.avgSentiment < -0.2, // but wrote negatively
+  );
+
+  return {
+    weeks,
+    insufficientData: false,
+    summary: {
+      totalWeeks: weeks.length,
+      weeksAnalyzed: weeks.filter((w) => w.avgSentiment !== null).length,
+      divergentWeeks: divergentWeeks.length,
+      divergenceNote:
+        divergentWeeks.length > 0
+          ? `In ${divergentWeeks.length} week(s), your mood score was high but your journal tone was negative — possible emotional suppression.`
+          : null,
+    },
+  };
+};
+
+// ── ISO week key helper (needed by getSentimentTrends) ─────────────
+// Duplicated here because mood.service.ts is a standalone module.
+// In a future refactor this should live in date.utils.ts.
+const getISOWeekKey = (date: Date): string => {
+  const d = new Date(date);
+  d.setUTCHours(0, 0, 0, 0);
+  d.setUTCDate(d.getUTCDate() + 4 - (d.getUTCDay() || 7));
+  const yearStart = new Date(Date.UTC(d.getUTCFullYear(), 0, 1));
+  const weekNo = Math.ceil(
+    ((d.getTime() - yearStart.getTime()) / 86400000 + 1) / 7,
+  );
+  return `${d.getUTCFullYear()}-W${String(weekNo).padStart(2, "0")}`;
+};

@@ -21,6 +21,7 @@ import {
   getMoodMonthlySummary,
   getMoodDailyInsights,
   getMoodForecast,
+  getSentimentTrends, // ← PHASE 5
 } from "./mood.service";
 
 // ─────────────────────────────────────────────────────────────────
@@ -276,6 +277,33 @@ export const getMoodForecastController = async (
     }
 
     const result = await getMoodForecast(req.userId!, days);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────
+// PHASE 5 — SENTIMENT TRENDS CONTROLLER
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/mood/sentiment/trends
+ *
+ * Returns weekly average sentiment score (from journal AI analysis)
+ * alongside weekly average mood score — so the user can see where
+ * their REPORTED mood diverges from their WRITTEN tone.
+ *
+ * No query params needed — always returns full history.
+ * The service handles the "insufficient data" case gracefully.
+ */
+export const getSentimentTrendsController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const result = await getSentimentTrends(req.userId!);
     res.json(result);
   } catch (error) {
     next(error);

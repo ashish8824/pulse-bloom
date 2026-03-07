@@ -334,10 +334,19 @@ model AiInsight {
   dataHash    String
   generatedAt DateTime @default(now())
 
+  // ── PHASE 5: type discriminator ────────────────────────────────
+  // Allows multiple AI result types per user in the same table.
+  // Values: "insights" (default, Phase 1) | "suggestions" (Phase 5)
+  // The @@unique constraint is on userId alone for "insights" (one per user).
+  // "suggestions" uses a separate findFirst/deleteMany/create pattern
+  // because Prisma upsert requires a single unique field.
+  type        String   @default("insights")
+
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId])
   @@index([userId])
+  @@index([userId, type])
 }
 
 

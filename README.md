@@ -4,7 +4,7 @@
 
 PulseBloom is a **production-grade, AI-ready behavioral analytics backend** designed for high-performance professionals managing stress, productivity, and emotional well-being.
 
-This backend powers a modern SaaS-style platform capable of mood tracking, habit building, statistical analytics, trend detection, burnout risk modeling, behavioral intelligence, gamification, and anonymous community sharing.
+This backend powers a modern SaaS-style platform capable of mood tracking, habit building, statistical analytics, trend detection, burnout risk modeling, behavioral intelligence, gamification, anonymous community sharing, and an AI-powered wellness coach.
 
 Built with scalable architecture, advanced backend logic, and production-level engineering standards.
 
@@ -31,6 +31,9 @@ Instead of basic CRUD tracking, it provides:
 - 📘 Fully documented OpenAPI (Swagger)
 - ⏰ Automated Habit Reminder Emails (node-cron + Gmail SMTP)
 - 🤖 AI-powered Behavioural Insights (Groq)
+- 🧠 Journal Sentiment Analysis — async sentiment scoring + theme extraction per journal entry
+- 💡 Smart Habit Suggestions — 3 personalized habit recommendations with rationale (Pro)
+- 💬 Personalized AI Coach — context-aware chat with full behavioral history injection (Pro)
 - 💳 Subscription Billing — Razorpay integration with plan gating (Free / Pro / Enterprise)
 - 🏆 Achievement Badge System — 6 badges awarded automatically as behavioral side effects
 - 🎯 Challenge System — create, join, and track time-boxed habit goals with leaderboards
@@ -80,12 +83,12 @@ pulsebloom-backend/
 │   │   │   └── auth.validation.ts           # Zod schemas — register, login, verify, reset, preferences
 │   │   │
 │   │   ├── mood/                            # ✅ Mood Tracking + Analytics Module
-│   │   │   ├── mood.controller.ts           # HTTP layer — all 14 mood endpoints
-│   │   │   ├── mood.service.ts              # Business logic (addMood, analytics, burnout, forecast…)
+│   │   │   ├── mood.controller.ts           # HTTP layer — all 15 mood endpoints
+│   │   │   ├── mood.service.ts              # Business logic (addMood, analytics, burnout, forecast, sentiment trends…)
 │   │   │   ├── mood.repository.ts           # DB layer — all Prisma + lean select queries
-│   │   │   ├── mood.routes.ts               # All 14 routes with full Swagger JSDoc
+│   │   │   ├── mood.routes.ts               # All 15 routes with full Swagger JSDoc
 │   │   │   ├── mood.validation.ts           # Zod schemas (5 schemas)
-│   │   │   └── mood.mongo.ts                # Mongoose schema — JournalEntry (MongoDB)
+│   │   │   └── mood.mongo.ts                # Mongoose schema — JournalEntry + sentimentScore + themes
 │   │   │
 │   │   ├── habits/                          # ✅ Full Habit Engine Module
 │   │   │   ├── habit.controller.ts          # HTTP layer — all 15 habit endpoints
@@ -94,12 +97,19 @@ pulsebloom-backend/
 │   │   │   ├── habit.routes.ts              # All 15 routes with full Swagger JSDoc annotations
 │   │   │   └── habit.validation.ts          # Zod schemas (5 schemas)
 │   │   │
-│   │   ├── ai/                              # ✅ AI Insights Module
-│   │   │   ├── ai.controller.ts
-│   │   │   ├── ai.service.ts
-│   │   │   ├── ai.repository.ts
-│   │   │   ├── ai.prompt.ts
-│   │   │   └── ai.routes.ts
+│   │   ├── ai/                              # ✅ AI Insights + Enhanced AI Module (Phase 5)
+│   │   │   ├── ai.controller.ts             # HTTP layer — insights, suggestions, chat
+│   │   │   ├── ai.service.ts                # Business logic — behavioral insight generation
+│   │   │   ├── ai.repository.ts             # DB layer — mood + habit data for AI context
+│   │   │   ├── ai.prompt.ts                 # Groq prompt builder — behavioral insights
+│   │   │   ├── ai.routes.ts                 # GET /insights, GET /suggestions, POST /chat
+│   │   │   ├── sentiment.prompt.ts          # Groq prompt — sentiment score + theme extraction
+│   │   │   ├── sentiment.service.ts         # Fire-and-forget sentiment analysis per journal
+│   │   │   ├── suggestions.prompt.ts        # Groq prompt — 3 personalized habit suggestions
+│   │   │   ├── suggestions.service.ts       # Suggestions with SHA-256 context-hash caching
+│   │   │   ├── chat.mongo.ts                # Mongoose schema — AiConversation (messages array)
+│   │   │   ├── chat.prompt.ts               # System prompt builder — injects 90-day behavioral summary
+│   │   │   └── chat.service.ts              # AI Coach orchestrator — history + context + Groq
 │   │   │
 │   │   ├── billing/                         # ✅ Razorpay Billing Module
 │   │   │   ├── billing.controller.ts        # HTTP layer — 5 billing endpoints
@@ -120,36 +130,23 @@ pulsebloom-backend/
 │   │   │
 │   │   ├── badges/                          # ✅ Achievement Badges Module (Phase 4)
 │   │   │   ├── badge.controller.ts          # HTTP layer — GET /api/badges
-│   │   │   ├── badge.service.ts             # Business logic:
-│   │   │   │                                #   • checkAndAwardHabitBadges (IRON_WILL, CENTURION)
-│   │   │   │                                #   • checkAndAwardMoodBadges (FIRST_STEP, WEEK_ONE,
-│   │   │   │                                #     MINDFUL_MONTH, RESILIENT)
-│   │   │   │                                #   • getBadges (earned + locked shelf)
-│   │   │   │                                #   • BADGE_META (centralised icon/label/hint config)
+│   │   │   ├── badge.service.ts             # checkAndAwardHabitBadges, checkAndAwardMoodBadges,
+│   │   │   │                                #   getBadges, BADGE_META config
 │   │   │   ├── badge.repository.ts          # DB layer — getBadgesByUser, hasBadge, createBadge
 │   │   │   └── badge.routes.ts              # GET /api/badges with full Swagger JSDoc
 │   │   │
 │   │   ├── challenges/                      # ✅ Challenge System Module (Phase 4)
 │   │   │   ├── challenge.controller.ts      # HTTP layer — 7 challenge endpoints
-│   │   │   ├── challenge.service.ts         # Business logic:
-│   │   │   │                                #   • createChallenge (auto-joins creator, generates joinCode)
-│   │   │   │                                #   • listChallenges (paginated public feed)
-│   │   │   │                                #   • getMyChallenges (created by user, with joinCode)
-│   │   │   │                                #   • getJoinedChallenges (with nested progress object)
-│   │   │   │                                #   • joinChallenge (public by ID / private by joinCode)
-│   │   │   │                                #   • completeChallenge (manual day — free-form only)
-│   │   │   │                                #   • getLeaderboard (ranked, isMe flag)
-│   │   │   │                                #   • advanceChallengeProgressForHabit (auto-advance)
+│   │   │   ├── challenge.service.ts         # createChallenge, listChallenges, getMyChallenges,
+│   │   │   │                                #   getJoinedChallenges, joinChallenge, completeChallenge,
+│   │   │   │                                #   getLeaderboard, advanceChallengeProgressForHabit
 │   │   │   ├── challenge.repository.ts      # DB layer — Challenge + ChallengeParticipant queries
 │   │   │   ├── challenge.validation.ts      # Zod schemas — createChallengeSchema, joinChallengeSchema
 │   │   │   └── challenge.routes.ts          # 7 routes with full Swagger JSDoc
 │   │   │
 │   │   └── community/                       # ✅ Anonymous Community Feed Module (Phase 4)
 │   │       ├── community.controller.ts      # HTTP layer — 3 community endpoints
-│   │       ├── community.service.ts         # Business logic:
-│   │       │                                #   • createPost (strips identity before save)
-│   │       │                                #   • getFeed (paginated, sort newest/popular, tag filter)
-│   │       │                                #   • toggleUpvote (HMAC-SHA256 deduplication)
+│   │       ├── community.service.ts         # createPost, getFeed, toggleUpvote
 │   │       ├── community.repository.ts      # DB layer — MongoDB CommunityPost queries
 │   │       ├── community.mongo.ts           # Mongoose schema — CommunityPost (MongoDB)
 │   │       └── community.routes.ts          # 3 routes with full Swagger JSDoc (mixed auth pattern)
@@ -597,22 +594,23 @@ It stores structured mood data in **PostgreSQL** and unstructured journal text i
 
 ## 🗺 Mood API Reference
 
-| Method   | Endpoint                    | Description                                                  |
-| -------- | --------------------------- | ------------------------------------------------------------ |
-| `POST`   | `/api/mood`                 | Create mood entry (+ optional journal)                       |
-| `GET`    | `/api/mood`                 | Paginated history (`?page` `?limit` `?startDate` `?endDate`) |
-| `GET`    | `/api/mood/:id`             | Single entry hydrated with journal text + tags               |
-| `PATCH`  | `/api/mood/:id`             | Partial update (score, emoji, journal, tags)                 |
-| `DELETE` | `/api/mood/:id`             | Hard delete entry + journal cleanup                          |
-| `GET`    | `/api/mood/analytics`       | Summary statistics                                           |
-| `GET`    | `/api/mood/streak`          | Consecutive logging streak                                   |
-| `GET`    | `/api/mood/heatmap`         | GitHub-style daily heatmap (`?days=365`)                     |
-| `GET`    | `/api/mood/summary/monthly` | Calendar month view (`?month=YYYY-MM`)                       |
-| `GET`    | `/api/mood/insights/daily`  | Day-of-week + time-of-day patterns                           |
-| `GET`    | `/api/mood/trends/weekly`   | ISO 8601 weekly trend groupings                              |
-| `GET`    | `/api/mood/trends/rolling`  | 7-day rolling average                                        |
-| `GET`    | `/api/mood/burnout-risk`    | Burnout risk score + level                                   |
-| `GET`    | `/api/mood/forecast`        | Predictive mood forecast (`?days=7`, max 14) (#8)            |
+| Method   | Endpoint                     | Description                                                  |
+| -------- | ---------------------------- | ------------------------------------------------------------ |
+| `POST`   | `/api/mood`                  | Create mood entry (+ optional journal)                       |
+| `GET`    | `/api/mood`                  | Paginated history (`?page` `?limit` `?startDate` `?endDate`) |
+| `GET`    | `/api/mood/:id`              | Single entry hydrated with journal text + tags               |
+| `PATCH`  | `/api/mood/:id`              | Partial update (score, emoji, journal, tags)                 |
+| `DELETE` | `/api/mood/:id`              | Hard delete entry + journal cleanup                          |
+| `GET`    | `/api/mood/analytics`        | Summary statistics                                           |
+| `GET`    | `/api/mood/streak`           | Consecutive logging streak                                   |
+| `GET`    | `/api/mood/heatmap`          | GitHub-style daily heatmap (`?days=365`)                     |
+| `GET`    | `/api/mood/summary/monthly`  | Calendar month view (`?month=YYYY-MM`)                       |
+| `GET`    | `/api/mood/insights/daily`   | Day-of-week + time-of-day patterns                           |
+| `GET`    | `/api/mood/trends/weekly`    | ISO 8601 weekly trend groupings                              |
+| `GET`    | `/api/mood/trends/rolling`   | 7-day rolling average                                        |
+| `GET`    | `/api/mood/burnout-risk`     | Burnout risk score + level                                   |
+| `GET`    | `/api/mood/forecast`         | Predictive mood forecast (`?days=7`, max 14)                 |
+| `GET`    | `/api/mood/sentiment/trends` | Weekly sentiment vs mood score correlation (Phase 5)         |
 
 ---
 
@@ -659,6 +657,7 @@ POST /api/mood
 
 - Mood milestone checks (`FIRST_MOOD_ENTRY`, `MOOD_STREAK_7/14/30`, `BEST_WEEK_MOOD`, `BURNOUT_RECOVERY`)
 - Badge checks (`FIRST_STEP`, `WEEK_ONE`, `MINDFUL_MONTH`, `RESILIENT`)
+- Journal sentiment analysis via Groq — extracts `sentimentScore` and `themes[]` and writes back to MongoDB (Phase 5)
 
 ---
 
@@ -770,18 +769,192 @@ model MoodEntry {
 }
 ```
 
-**MongoDB — JournalEntry:**
+**MongoDB — JournalEntry (updated in Phase 5):**
 
 ```ts
 {
-  userId: string        // links back to PostgreSQL User.id
-  moodEntryId: string   // back-reference to PostgreSQL MoodEntry.id
-  text: string          // up to 5000 characters
-  tags: string[]        // context slugs e.g. ["work", "sleep"]
+  userId: string          // links back to PostgreSQL User.id
+  moodEntryId: string     // back-reference to PostgreSQL MoodEntry.id
+  text: string            // up to 5000 characters
+  tags: string[]          // context slugs e.g. ["work", "sleep"]
+  sentimentScore: number  // -1.0 to 1.0 — AI-inferred emotional tone (nullable)
+  themes: string[]        // up to 5 AI-extracted topic keywords (e.g. ["productivity", "focus"])
   createdAt: Date
   updatedAt: Date
 }
 ```
+
+> `sentimentScore` and `themes` are populated asynchronously after journal creation. They are `null`/`[]` until the Groq analysis completes (typically within seconds).
+
+---
+
+# 🤖 AI Module _(Enhanced in Phase 5)_
+
+PulseBloom uses **Groq** (llama-3.3-70b-versatile) for all AI features. Three distinct AI capabilities are available, all gated behind the Pro/Enterprise plan.
+
+## 🗺 AI API Reference
+
+| Method | Endpoint              | Plan Gate        | Description                                              |
+| ------ | --------------------- | ---------------- | -------------------------------------------------------- |
+| `GET`  | `/api/ai/insights`    | Pro + Enterprise | Cross-correlated behavioral insights (SHA-256 cached)    |
+| `GET`  | `/api/ai/suggestions` | Pro + Enterprise | 3 personalized habit suggestions with rationale          |
+| `POST` | `/api/ai/chat`        | Pro + Enterprise | Conversational AI wellness coach with behavioral context |
+
+---
+
+## Behavioral Insights
+
+```
+GET /api/ai/insights
+GET /api/ai/insights?refresh=true
+```
+
+Generates cross-correlated behavioral insights by analyzing mood scores and habit completion data together. Results are cached in PostgreSQL using a **SHA-256 data hash** — the Groq API is only called when behavioral data has actually changed.
+
+---
+
+## Smart Habit Suggestions _(Phase 5)_
+
+```
+GET /api/ai/suggestions
+GET /api/ai/suggestions?refresh=true
+```
+
+Returns 3 personalized habit recommendations based on the user's current habits, burnout risk, mood patterns, and behavioral context. Never suggests habits already tracked by the user.
+
+**Caching:** SHA-256 hash of the suggestion context (existing habits, burnout level, day/time patterns, average mood). The Groq API is only called when context has meaningfully changed — zero cost on repeated requests with unchanged data.
+
+**Response:**
+
+```json
+{
+  "suggestions": [
+    {
+      "title": "5-Minute Evening Walk",
+      "frequency": "daily",
+      "category": "WELLNESS",
+      "rationale": "Your mood averages 2.8 on Thursdays and Fridays. Light movement in the evening has been shown to reduce end-of-week stress accumulation.",
+      "expectedMoodImpact": "May improve Friday mood scores by 0.5–1.0 points based on your current patterns."
+    }
+  ],
+  "cached": false,
+  "generatedAt": "2026-03-06T10:00:00.000Z",
+  "message": "Suggestions generated based on your latest behavioral data."
+}
+```
+
+---
+
+## Personalized AI Coach _(Phase 5)_
+
+```
+POST /api/ai/chat
+```
+
+A conversational AI wellness coach that has **full access to the user's 90-day behavioral summary** — mood averages, burnout risk, habit streaks, and completion rates — injected into every call. The coach references your actual data rather than giving generic advice.
+
+**Request body:**
+
+```json
+{
+  "message": "Why do I always feel worse on Fridays?",
+  "conversationId": "65d4fa21bc92b3bcd23e4567"
+}
+```
+
+| Field            | Type   | Required | Description                                                                   |
+| ---------------- | ------ | -------- | ----------------------------------------------------------------------------- |
+| `message`        | string | ✅       | User message. Max 1000 characters.                                            |
+| `conversationId` | string | ❌       | Continue an existing conversation. Omit or send `null` to start a new thread. |
+
+**Response:**
+
+```json
+{
+  "reply": "Looking at your data, your mood averages 2.8 on Fridays vs 3.9 on Mondays — one of the largest day-of-week gaps in your history. Your habit completion also drops on Thursdays, which likely compounds into Friday. Would you like to try anchoring one consistent habit on Thursday evenings?",
+  "conversationId": "65d4fa21bc92b3bcd23e4567",
+  "messageCount": 2
+}
+```
+
+> **`conversationId` flow:** The first call (no `conversationId`) creates a new conversation and returns its ID. Pass this ID in subsequent requests to continue the same thread. Store it client-side (e.g. in state or localStorage).
+
+**Conversation limits:**
+
+| Limit                            | Value                                        |
+| -------------------------------- | -------------------------------------------- |
+| Messages sent to AI per call     | Last 10 (context window management)          |
+| Messages stored per conversation | Max 50 (older messages pruned automatically) |
+| Conversations per user           | Max 20 (oldest deleted on overflow)          |
+| Message max length               | 1000 characters                              |
+
+**Behavioral context injected on every call:**
+
+- Average mood score (last 90 days)
+- Burnout risk level
+- Current mood logging streak
+- Active habits with per-habit completion rates and streaks
+- Recent low-mood days (last 14 days)
+
+**Conversation storage:** MongoDB `AiConversation` model — `userId`, `conversationId`, `title` (auto-generated from first message), `messages[]` with `role`, `content`, and `timestamp`.
+
+---
+
+## Journal Sentiment Analysis _(Phase 5)_
+
+Sentiment analysis runs **automatically and asynchronously** after every mood entry with journal text. No separate endpoint is required — it fires as a fire-and-forget side effect of `POST /api/mood`.
+
+**What it does:**
+
+- Calls Groq with the journal text (truncated to 2000 chars for cost efficiency)
+- Extracts `sentimentScore` (−1.0 to 1.0) representing emotional tone
+- Extracts up to 5 `themes[]` as lowercase slugs (e.g. `["productivity", "stress", "sleep"]`)
+- Updates the MongoDB `JournalEntry` document with both fields
+- Never blocks the mood entry save — all Groq errors are caught internally and logged
+
+**Sentiment Trends Endpoint:**
+
+```
+GET /api/mood/sentiment/trends
+Authorization: Bearer <accessToken>
+```
+
+Returns weekly average sentiment aligned with weekly mood scores, surfacing divergence between what you write and how you rate your mood.
+
+```json
+{
+  "weeks": [
+    {
+      "week": "2026-W08",
+      "avgSentiment": -0.3,
+      "avgMood": 3.8,
+      "journalCount": 5,
+      "moodEntryCount": 7,
+      "topThemes": ["stress", "work", "deadlines"]
+    }
+  ],
+  "insufficientData": false,
+  "summary": {
+    "divergentWeeks": 2,
+    "divergenceNote": "2 week(s) where mood score was high (≥3.5) but journal sentiment was negative (<-0.2). You may be underreporting emotional difficulty."
+  }
+}
+```
+
+> **Divergence insight:** weeks where `avgMood ≥ 3.5` but `avgSentiment < −0.2` signal potential emotional suppression — rating mood positively while journaling negatively.
+
+Requires a minimum of 3 analyzed journals to return data. Returns `insufficientData: true` otherwise.
+
+---
+
+## Groq Configuration Reference
+
+| Feature             | Model                   | Temperature | Max Tokens | Notes                                    |
+| ------------------- | ----------------------- | ----------- | ---------- | ---------------------------------------- |
+| Behavioral Insights | llama-3.3-70b-versatile | 0.3         | 800        | Structured JSON output                   |
+| Sentiment Analysis  | llama-3.3-70b-versatile | 0.1         | 100        | Deterministic extraction, minimal tokens |
+| Habit Suggestions   | llama-3.3-70b-versatile | 0.5         | 600        | Creative variety, structured JSON        |
+| AI Coach Chat       | llama-3.3-70b-versatile | 0.7         | 400        | Conversational, context-aware            |
 
 ---
 
@@ -1034,77 +1207,6 @@ Returns two lists: earned badges with metadata and `earnedAt`, and all locked ba
 
 ---
 
-## How Badges Are Awarded
-
-Badges are checked inside two existing service calls:
-
-**In `completeHabit()`** — after streak is calculated:
-
-```typescript
-// Fire-and-forget — badge failures never crash habit completion
-checkAndAwardHabitBadges(userId, currentStreak, habitId).catch(() => {});
-advanceChallengeProgressForHabit(habitId, userId).catch(() => {});
-```
-
-**In `addMood()`** — after entry is saved, four queries run in parallel:
-
-```typescript
-(async () => {
-  try {
-    const [totalMoodCount, streak, recentScores, monthCoverage] =
-      await Promise.all([
-        prisma.moodEntry.count({ where: { userId } }),
-        calculateMoodStreak(userId),
-        getMoodScores(userId).then((rows) =>
-          rows.slice(0, 14).map((r) => r.moodScore),
-        ),
-        checkFullMonthMoodCoverage(userId),
-      ]);
-
-    const burnoutDroppedToLow = prevRisk === "High" && currRisk === "Low";
-
-    await checkAndAwardMoodBadges(userId, {
-      totalMoodCount,
-      currentMoodStreak: streak.currentStreak,
-      burnoutDroppedToLow,
-      loggedEveryDayThisMonth: monthCoverage,
-    });
-  } catch {}
-})();
-```
-
----
-
-## Badge Database Schema
-
-```prisma
-enum BadgeType {
-  FIRST_STEP
-  WEEK_ONE
-  IRON_WILL
-  MINDFUL_MONTH
-  RESILIENT
-  CENTURION
-}
-
-model Badge {
-  id        String    @id @default(uuid())
-  userId    String
-  type      BadgeType
-  relatedId String?   // e.g. habitId for IRON_WILL / CENTURION
-  earnedAt  DateTime  @default(now())
-
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([userId, type])
-  @@index([userId])
-  @@index([userId, type])
-  @@index([type])
-}
-```
-
----
-
 # 🎯 Challenges Module _(Phase 4)_
 
 The Challenge System allows users to create time-boxed habit goals, invite others via a join code, and compete on a leaderboard.
@@ -1195,48 +1297,6 @@ Authorization: Bearer <accessToken>
 { "joinCode": "A3F9E201" }
 ```
 
-**Responses:**
-
-| Code  | Meaning                                  |
-| ----- | ---------------------------------------- |
-| `200` | Successfully joined                      |
-| `400` | Challenge has ended                      |
-| `404` | Challenge not found (invalid ID or code) |
-| `409` | Already joined this challenge            |
-
----
-
-## Get Joined Challenges (with Progress)
-
-```
-GET /api/challenges/joined
-Authorization: Bearer <accessToken>
-```
-
-```json
-{
-  "challenges": [
-    {
-      "id": "b3f1e9a2-...",
-      "title": "30 Days of Morning Meditation",
-      "targetDays": 30,
-      "startDate": "2026-03-01T00:00:00.000Z",
-      "endDate": "2026-03-31T00:00:00.000Z",
-      "isActive": true,
-      "habitId": "a1b2c3d4-...",
-      "progress": {
-        "completionsCount": 14,
-        "targetDays": 30,
-        "progressPct": 47,
-        "isCompleted": false,
-        "completedAt": null
-      },
-      "joinedAt": "2026-03-01T08:00:00.000Z"
-    }
-  ]
-}
-```
-
 ---
 
 ## Challenge Leaderboard
@@ -1247,8 +1307,6 @@ Authorization: Bearer <accessToken>
 ```
 
 Ranked by `completionsCount` descending. Ties broken by `completedAt` ascending (finished first ranks higher). The `isMe` flag lets the frontend highlight the authenticated user's row without client-side ID comparison.
-
-**Access rules:** Public challenges — any authenticated user. Private challenges — participants only (`403` for non-participants).
 
 ```json
 {
@@ -1276,66 +1334,6 @@ Ranked by `completionsCount` descending. Ties broken by `completedAt` ascending 
       "isMe": false
     }
   ]
-}
-```
-
----
-
-## How Challenge Progress Advances Automatically
-
-Inside `completeHabit()`, after logging the completion:
-
-```typescript
-// Fire-and-forget — challenge failures never crash habit completion
-advanceChallengeProgressForHabit(habitId, userId).catch(() => {});
-```
-
-`advanceChallengeProgressForHabit()` finds all active `ChallengeParticipant` records where the challenge is linked to this `habitId` and this `userId`, increments `completionsCount`, and fires a `CHALLENGE_UPDATE` notification when `completionsCount >= targetDays`.
-
----
-
-## Challenge Database Schema
-
-```prisma
-model Challenge {
-  id          String   @id @default(uuid())
-  title       String
-  description String?
-  habitId     String?
-  targetDays  Int
-  startDate   DateTime
-  endDate     DateTime
-  isPublic    Boolean  @default(true)
-  isActive    Boolean  @default(true)
-  joinCode    String   @unique
-  createdBy   String
-
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  creator      User                   @relation("ChallengeCreator", fields: [createdBy], references: [id], onDelete: Cascade)
-  participants ChallengeParticipant[]
-
-  @@index([createdBy])
-  @@index([isPublic, isActive])
-  @@index([habitId])
-}
-
-model ChallengeParticipant {
-  id               String    @id @default(uuid())
-  challengeId      String
-  userId           String
-  completionsCount Int       @default(0)
-  isCompleted      Boolean   @default(false)
-  completedAt      DateTime?
-  joinedAt         DateTime  @default(now())
-
-  challenge Challenge @relation(fields: [challengeId], references: [id], onDelete: Cascade)
-  user      User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  @@unique([challengeId, userId])
-  @@index([userId])
-  @@index([challengeId])
 }
 ```
 
@@ -1397,8 +1395,6 @@ GET /api/community?page=1&limit=20&sort=popular&type=MILESTONE&tag=meditation
 }
 ```
 
-> `hasUpvoted` is only present when the request is authenticated. Without auth, the field is omitted.
-
 ---
 
 ## Submit an Anonymous Post
@@ -1407,8 +1403,6 @@ GET /api/community?page=1&limit=20&sort=popular&type=MILESTONE&tag=meditation
 POST /api/community
 Authorization: Bearer <accessToken>
 ```
-
-Requires authentication to prevent spam. Identity is discarded before the document is saved — no `userId` is ever written to MongoDB.
 
 ```json
 {
@@ -1426,28 +1420,6 @@ Requires authentication to prevent spam. Identity is discarded before the docume
 | `content` | string 10–500             | ✅       | Post body. 10–500 characters.                            |
 | `tags`    | string[]                  | ❌       | Up to 5 lowercase slugs (`^[a-z0-9-]+$`). Default: `[]`. |
 
-**Post types:**
-
-| Type         | When to use                                               |
-| ------------ | --------------------------------------------------------- |
-| `MILESTONE`  | Share a behavioral achievement (streak, badge, challenge) |
-| `REFLECTION` | Share a thought, insight, or personal observation         |
-
-**Response `201`:**
-
-```json
-{
-  "post": {
-    "id": "65d4fa21bc92b3bcd23e4567",
-    "type": "MILESTONE",
-    "content": "Just hit a 30-day meditation streak!",
-    "tags": ["meditation", "mindfulness"],
-    "upvotes": 0,
-    "createdAt": "2026-02-26T08:30:00.000Z"
-  }
-}
-```
-
 ---
 
 ## Toggle Upvote
@@ -1459,9 +1431,6 @@ Authorization: Bearer <accessToken>
 
 **Toggle semantics:** calling this endpoint twice returns the upvote to its original state.
 
-- First call → adds upvote → `{ upvotes: N+1, hasUpvoted: true }`
-- Second call → removes upvote → `{ upvotes: N, hasUpvoted: false }`
-
 ```json
 {
   "postId": "65d4fa21bc92b3bcd23e4567",
@@ -1472,29 +1441,7 @@ Authorization: Bearer <accessToken>
 
 ---
 
-## Community MongoDB Schema
-
-```ts
-// MongoDB — CommunityPost
-{
-  type: "MILESTONE" | "REFLECTION"
-  content: string           // 10–500 characters
-  tags: string[]            // up to 5 lowercase slugs
-  upvotes: number           // atomic increment/decrement
-  upvotedBy: string[]       // HMAC-SHA256 hashes only — select: false, never returned in queries
-  createdAt: Date
-}
-```
-
-> `upvotedBy` has `select: false` on the Mongoose schema — it **physically cannot appear** in any query result. This is an architectural anonymity guarantee, not just a filter.
-
-**Indexes:** `{ createdAt: -1 }` (newest feed), `{ upvotes: -1 }` (popular feed), `{ tags: 1 }` (tag filter), `{ type: 1 }` (type filter).
-
----
-
 # ⏰ Reminder Cron Job
-
-PulseBloom includes a production-grade background job that sends habit reminder emails to users who haven't completed their habit yet for the current period.
 
 ```
 Every minute:
@@ -1509,36 +1456,19 @@ Error isolation via `Promise.allSettled()` — if one email fails, all other rem
 
 ---
 
-# 🤖 AI Insights Module
-
-PulseBloom uses **Groq** to cross-correlate mood scores and habit completion data, generating personalised behavioral insights.
-
-## Endpoint
-
-```
-GET /api/ai/insights
-GET /api/ai/insights?refresh=true
-```
-
-> **Plan limit:** AI Insights are available on **Pro and Enterprise plans only**. Free plan users receive a `403` with an upgrade prompt.
-
-## Caching Strategy
-
-Results are cached in PostgreSQL (`AiInsight` table) using a **SHA-256 data hash**. The Groq API is only called when behavioral data has actually changed — not on a fixed TTL. Zero API cost on repeated requests with unchanged data.
-
----
-
 # 💳 Billing Module
 
 PulseBloom uses **Razorpay** for subscription billing with plan-based feature gating across the entire API.
 
 ## Plan Limits
 
-| Tier       | Habits    | Mood History | AI Insights | Team Features |
+| Tier       | Habits    | Mood History | AI Features | Team Features |
 | ---------- | --------- | ------------ | ----------- | ------------- |
 | Free       | 3 max     | 30 days      | ❌          | ❌            |
 | Pro        | Unlimited | Full history | ✅          | ❌            |
 | Enterprise | Unlimited | Full history | ✅          | ✅            |
+
+> AI features on Pro/Enterprise: Behavioral Insights, Smart Habit Suggestions, AI Coach Chat, Journal Sentiment Trends.
 
 ## 🗺 Billing API Reference
 
@@ -1558,17 +1488,17 @@ PulseBloom uses **Razorpay** for subscription billing with plan-based feature ga
 
 Managed via **Prisma ORM** with a `pg` connection pool adapter.
 
-Stores: Users, RefreshTokens, MoodEntry, Habit, HabitLog, AiInsight cache, Subscription, Milestone, Badge, Challenge, ChallengeParticipant.
+Stores: Users, RefreshTokens, MoodEntry, Habit, HabitLog, AiInsight cache (with `type` discriminator for insights vs suggestions), Subscription, Milestone, Badge, Challenge, ChallengeParticipant.
 
-Used for: Filtering, pagination, sorting, analytics, streak queries, transactional reordering, cron job queries, plan enforcement, badge idempotency checks, challenge leaderboards.
+Used for: Filtering, pagination, sorting, analytics, streak queries, transactional reordering, cron job queries, plan enforcement, badge idempotency checks, challenge leaderboards, AI result caching.
 
 ## MongoDB (Unstructured Data)
 
 Managed via **Mongoose**.
 
-Stores: JournalEntry (mood text + tags), CommunityPost (anonymous posts + upvotes).
+Stores: JournalEntry (mood text + tags + `sentimentScore` + `themes`), CommunityPost (anonymous posts + upvotes), AiConversation (AI coach message history with per-conversation message arrays).
 
-Optimised for: Flexible schemas, text-heavy storage, anonymous community data, future AI model integrations.
+Optimised for: Flexible schemas, text-heavy storage, variable-length arrays, anonymous community data, AI conversation history.
 
 ---
 
@@ -1596,6 +1526,8 @@ Optimised for: Flexible schemas, text-heavy storage, anonymous community data, f
 - Upvote deduplication via `HMAC-SHA256(userId, serverSecret)` — irreversible, never exposed in any API response
 - Badge awards are idempotent — `hasBadge()` checked before every write, `@@unique([userId, type])` as DB-level safety net
 - All gamification side effects (badges, challenges) are fire-and-forget — failures never propagate to primary operations
+- AI sentiment analysis never blocks mood entry save — all Groq errors are caught internally and logged
+- Free plan users receive `403` before any Groq call is made — zero AI API cost from free tier
 
 ---
 
@@ -1652,7 +1584,7 @@ EMAIL_FROM="PulseBloom 🌸 <yourgmail@gmail.com>"
 # Frontend URL
 APP_URL=http://localhost:3000
 
-# Groq — for AI insights
+# Groq — used for all AI features (insights, sentiment, suggestions, coach chat)
 GROQ_API_KEY=gsk_...your-key-here...
 
 # Razorpay — for subscription billing
@@ -1671,10 +1603,10 @@ RAZORPAY_PLAN_ENTERPRISE=plan_...
 CREATE DATABASE pulsebloom;
 ```
 
-Run migrations (Phase 4 adds `Badge`, `Challenge`, `ChallengeParticipant` + `BadgeType` enum):
+Run migrations (Phase 5 adds `type` discriminator field to `AiInsight`):
 
 ```bash
-npx prisma migrate dev --name phase4_gamification
+npx prisma migrate dev --name phase5_ai_type_discriminator
 npx prisma generate
 ```
 
@@ -1705,83 +1637,77 @@ Server running on port 5000
 
 ## ✅ Completed
 
-| Feature                                               | Status      |
-| ----------------------------------------------------- | ----------- |
-| Authentication (Register / Login)                     | ✅ Complete |
-| Email Verification (OTP flow)                         | ✅ Complete |
-| Resend Verification OTP                               | ✅ Complete |
-| Refresh Token + Token Rotation                        | ✅ Complete |
-| Refresh Token Reuse Detection                         | ✅ Complete |
-| Forgot Password / Reset Password                      | ✅ Complete |
-| GET /me — User Profile Endpoint                       | ✅ Complete |
-| Tiered Auth Rate Limiting                             | ✅ Complete |
-| Protected Routes (JWT middleware)                     | ✅ Complete |
-| Mood CRUD (Create, Read, Update, Delete)              | ✅ Complete |
-| Mood Pagination + Date Filtering                      | ✅ Complete |
-| Mood Entry Hydration (journal + tags)                 | ✅ Complete |
-| Mood Journal Cross-store Sync (PG + Mongo)            | ✅ Complete |
-| Mood Context Tags                                     | ✅ Complete |
-| Mood Analytics Engine                                 | ✅ Complete |
-| Mood Logging Streak                                   | ✅ Complete |
-| Mood Heatmap (GitHub-style)                           | ✅ Complete |
-| Monthly Mood Calendar Summary                         | ✅ Complete |
-| Day-of-Week + Time-of-Day Pattern Insights            | ✅ Complete |
-| Weekly Trend Analysis (ISO 8601)                      | ✅ Complete |
-| Rolling 7-Day Average                                 | ✅ Complete |
-| Burnout Risk Scoring                                  | ✅ Complete |
-| Swagger Documentation                                 | ✅ Complete |
-| Hybrid DB Architecture (PG + Mongo)                   | ✅ Complete |
-| Habit CRUD (Create, Read, Update)                     | ✅ Complete |
-| Habit Soft Delete + Restore                           | ✅ Complete |
-| Habit Duplicate Prevention                            | ✅ Complete |
-| Habit Categories, Color, Icon                         | ✅ Complete |
-| Habit Reordering (Drag & Drop, Atomic TX)             | ✅ Complete |
-| Habit Completion + Undo                               | ✅ Complete |
-| Habit Streak Engine (DST-safe)                        | ✅ Complete |
-| Streak Milestone Detection                            | ✅ Complete |
-| Habit Analytics + Consistency Score                   | ✅ Complete |
-| Best Day of Week Insight                              | ✅ Complete |
-| Monthly Habit Calendar Summary                        | ✅ Complete |
-| GitHub-style Habit Heatmap                            | ✅ Complete |
-| Paginated Habit Log History                           | ✅ Complete |
-| Habit Reminder Settings                               | ✅ Complete |
-| targetPerWeek Goal Support                            | ✅ Complete |
-| Global Error Handler (Zod + App + Unknown)            | ✅ Complete |
-| Reminder Cron Job (node-cron)                         | ✅ Complete |
-| Mood Check-in Reminder Emails                         | ✅ Complete |
-| Weekly Email Digest (Saturday 8am cron)               | ✅ Complete |
-| In-App Notification System                            | ✅ Complete |
-| User Notification Preferences (PATCH /me/preferences) | ✅ Complete |
-| Notification Cleanup Cron (daily 3am)                 | ✅ Complete |
-| Structured Logger                                     | ✅ Complete |
-| Gmail SMTP Email Delivery                             | ✅ Complete |
-| AI-powered Insights (Groq)                            | ✅ Complete |
-| SHA-256 Hash-based AI Cache                           | ✅ Complete |
-| Subscription Plans (Free / Pro / Enterprise)          | ✅ Complete |
-| Usage Limits Middleware (planLimiter)                 | ✅ Complete |
-| Razorpay Payment Integration                          | ✅ Complete |
-| Mood ↔ Habit Correlation Engine                       | ✅ Complete |
-| Predictive Mood Forecast (3-signal model)             | ✅ Complete |
-| Personal Records & Milestones Timeline                | ✅ Complete |
-| Habit Correlation Matrix (co-completion rate)         | ✅ Complete |
-| Achievement Badges (6 badges, fire-and-forget)        | ✅ Complete |
-| Challenge System (public + private, leaderboard)      | ✅ Complete |
-| Anonymous Community Feed (HMAC upvote deduplication)  | ✅ Complete |
+| Feature                                                       | Status      |
+| ------------------------------------------------------------- | ----------- |
+| Authentication (Register / Login)                             | ✅ Complete |
+| Email Verification (OTP flow)                                 | ✅ Complete |
+| Resend Verification OTP                                       | ✅ Complete |
+| Refresh Token + Token Rotation                                | ✅ Complete |
+| Refresh Token Reuse Detection                                 | ✅ Complete |
+| Forgot Password / Reset Password                              | ✅ Complete |
+| GET /me — User Profile Endpoint                               | ✅ Complete |
+| Tiered Auth Rate Limiting                                     | ✅ Complete |
+| Protected Routes (JWT middleware)                             | ✅ Complete |
+| Mood CRUD (Create, Read, Update, Delete)                      | ✅ Complete |
+| Mood Pagination + Date Filtering                              | ✅ Complete |
+| Mood Entry Hydration (journal + tags)                         | ✅ Complete |
+| Mood Journal Cross-store Sync (PG + Mongo)                    | ✅ Complete |
+| Mood Context Tags                                             | ✅ Complete |
+| Mood Analytics Engine                                         | ✅ Complete |
+| Mood Logging Streak                                           | ✅ Complete |
+| Mood Heatmap (GitHub-style)                                   | ✅ Complete |
+| Monthly Mood Calendar Summary                                 | ✅ Complete |
+| Day-of-Week + Time-of-Day Pattern Insights                    | ✅ Complete |
+| Weekly Trend Analysis (ISO 8601)                              | ✅ Complete |
+| Rolling 7-Day Average                                         | ✅ Complete |
+| Burnout Risk Scoring                                          | ✅ Complete |
+| Swagger Documentation                                         | ✅ Complete |
+| Hybrid DB Architecture (PG + Mongo)                           | ✅ Complete |
+| Habit CRUD (Create, Read, Update)                             | ✅ Complete |
+| Habit Soft Delete + Restore                                   | ✅ Complete |
+| Habit Duplicate Prevention                                    | ✅ Complete |
+| Habit Categories, Color, Icon                                 | ✅ Complete |
+| Habit Reordering (Drag & Drop, Atomic TX)                     | ✅ Complete |
+| Habit Completion + Undo                                       | ✅ Complete |
+| Habit Streak Engine (DST-safe)                                | ✅ Complete |
+| Streak Milestone Detection                                    | ✅ Complete |
+| Habit Analytics + Consistency Score                           | ✅ Complete |
+| Best Day of Week Insight                                      | ✅ Complete |
+| Monthly Habit Calendar Summary                                | ✅ Complete |
+| GitHub-style Habit Heatmap                                    | ✅ Complete |
+| Paginated Habit Log History                                   | ✅ Complete |
+| Habit Reminder Settings                                       | ✅ Complete |
+| targetPerWeek Goal Support                                    | ✅ Complete |
+| Global Error Handler (Zod + App + Unknown)                    | ✅ Complete |
+| Reminder Cron Job (node-cron)                                 | ✅ Complete |
+| Mood Check-in Reminder Emails                                 | ✅ Complete |
+| Weekly Email Digest (Saturday 8am cron)                       | ✅ Complete |
+| In-App Notification System                                    | ✅ Complete |
+| User Notification Preferences (PATCH /me/preferences)         | ✅ Complete |
+| Notification Cleanup Cron (daily 3am)                         | ✅ Complete |
+| Structured Logger                                             | ✅ Complete |
+| Gmail SMTP Email Delivery                                     | ✅ Complete |
+| AI-powered Behavioral Insights (Groq)                         | ✅ Complete |
+| SHA-256 Hash-based AI Cache                                   | ✅ Complete |
+| Subscription Plans (Free / Pro / Enterprise)                  | ✅ Complete |
+| Usage Limits Middleware (planLimiter)                         | ✅ Complete |
+| Razorpay Payment Integration                                  | ✅ Complete |
+| Mood ↔ Habit Correlation Engine                               | ✅ Complete |
+| Predictive Mood Forecast (3-signal model)                     | ✅ Complete |
+| Personal Records & Milestones Timeline                        | ✅ Complete |
+| Habit Correlation Matrix (co-completion rate)                 | ✅ Complete |
+| Achievement Badges (6 badges, fire-and-forget)                | ✅ Complete |
+| Challenge System (public + private, leaderboard)              | ✅ Complete |
+| Anonymous Community Feed (HMAC upvote deduplication)          | ✅ Complete |
+| Journal Sentiment Analysis (async, fire-and-forget)           | ✅ Complete |
+| Sentiment Trends Endpoint (weekly mood vs sentiment)          | ✅ Complete |
+| Smart Habit Suggestions (3 personalized, SHA-256 cached)      | ✅ Complete |
+| Personalized AI Coach (chat, MongoDB history, 90-day context) | ✅ Complete |
 
 ## 🔮 Upcoming — Build Order
 
 | #   | Feature                                  | Phase             |
 | --- | ---------------------------------------- | ----------------- |
-| 7   | Mood ↔ Habit Correlation Engine          | ✅ Complete       |
-| 8   | Predictive Mood Forecast                 | ✅ Complete       |
-| 9   | Personal Records & Milestones Timeline   | ✅ Complete       |
-| 10  | Habit Correlation Matrix                 | ✅ Complete       |
-| 11  | Achievement Badges                       | ✅ Complete       |
-| 12  | Challenge System                         | ✅ Complete       |
-| 13  | Anonymous Community Feed                 | ✅ Complete       |
-| 14  | Journal Sentiment Analysis               | 🤖 Enhanced AI    |
-| 15  | Smart Habit Suggestions                  | 🤖 Enhanced AI    |
-| 16  | Personalized AI Coach (Chat Interface)   | 🤖 Enhanced AI    |
 | 17  | Organizations + Members                  | 👥 Team           |
 | 18  | Team Mood Dashboard                      | 👥 Team           |
 | 19  | Manager Burnout Alerts                   | 👥 Team           |
@@ -1800,18 +1726,6 @@ Server running on port 5000
 
 # 🔮 Upcoming Features
 
-## 🤖 Phase 5 — Enhanced AI
-
-> Build on the existing `ai.prompt.ts` infrastructure. The data pre-processing layer is already there.
-
-**14. Journal Sentiment Analysis** — After `JournalModel.create()` in `addMood()`, fire an async Groq call (don't await — non-blocking). Prompt: extract `sentimentScore` (-1.0 to 1.0) and up to 5 theme tags from the journal text, respond in JSON. Update the journal document with `sentimentScore` and `themes[]`. New endpoint: `GET /api/mood/sentiment/trends` — weekly average sentiment vs weekly mood score.
-
-**15. Smart Habit Suggestions** — `GET /api/ai/suggestions`. Feed the existing daily insights + current habits + burnout risk level into a Groq prompt. Return 3 habit suggestions with `title`, `frequency`, `category`, `rationale`, and `expectedMoodImpact`. Cache using the same SHA-256 hash strategy as AI insights.
-
-**16. Personalized AI Coach (Chat Interface)** — `POST /api/ai/chat` with body `{ message, conversationId? }`. Store conversation history in a new MongoDB model `AiConversation`: `userId`, `messages: [{ role, content, timestamp }]`. Inject the user's last 90-day behavioral summary into the system prompt on every call. Include up to the last 10 messages for context. Gate behind Pro plan.
-
----
-
 ## 👥 Phase 6 — Team & Organization
 
 > Build after monetization is stable. Enterprise plan must exist before org features launch.
@@ -1828,7 +1742,7 @@ Server running on port 5000
 
 **20. Redis Caching Layer** — `npm install ioredis`. Cache keys: `mood:analytics:{userId}`, `mood:streak:{userId}`, `habit:streak:{habitId}`. TTL: 5 minutes for analytics and streaks, 1 hour for heatmaps. Invalidate on write. Add `X-Cache: HIT | MISS` header to analytics responses.
 
-**21. Account Deletion (GDPR Right to Erasure)** — `DELETE /api/auth/account` (requires password confirmation). Flow: verify password → delete all MongoDB `JournalEntry` and `CommunityPost` docs for `userId` → delete `User` row in Postgres (Cascade handles related records) → revoke all refresh tokens. Send a 24-hour warning email first.
+**21. Account Deletion (GDPR Right to Erasure)** — `DELETE /api/auth/account` (requires password confirmation). Flow: verify password → delete all MongoDB `JournalEntry`, `CommunityPost`, and `AiConversation` docs for `userId` → delete `User` row in Postgres (Cascade handles related records) → revoke all refresh tokens. Send a 24-hour warning email first.
 
 **22. Data Export (CSV / JSON)** — `GET /api/export/mood?format=csv|json` and `GET /api/export/habits?format=csv|json`. Rate-limit to 3 exports per 24 hours per user.
 

@@ -13,6 +13,8 @@
 
 import { Request, Response, NextFunction } from "express";
 import { getAiInsights } from "./ai.service";
+import { getHabitSuggestions } from "./suggestions.service"; // ← PHASE 5
+import { getAiCoachResponse } from "./chat.service"; // ← PHASE 5
 
 /**
  * GET /api/ai/insights
@@ -49,6 +51,81 @@ export const getInsightsController = async (
   } catch (error) {
     // Forward to global error handler (middlewares/error.middleware.ts)
     // This means OpenAI failures, DB errors, etc. all get handled uniformly
+    next(error);
+  }
+};
+
+// ─────────────────────────────────────────────────────────────────
+// PHASE 5 CONTROLLERS
+// ─────────────────────────────────────────────────────────────────
+
+/**
+ * GET /api/ai/suggestions
+ * GET /api/ai/suggestions?refresh=true
+ *
+ * Returns 3 personalized habit suggestions based on:
+ *   - Current burnout risk level
+ *   - Day-of-week mood patterns
+ *   - Existing habits (to avoid duplication)
+ *
+ * Plan restricted: Pro + Enterprise only.
+ */
+export const getSuggestionsController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const forceRefresh = req.query.refresh === "true";
+    const result = await getHabitSuggestions(req.userId!, forceRefresh);
+    res.json(result);
+  } catch (error) {
+    next(error);
+  }
+};
+
+/**
+ * POST /api/ai/chat
+ *
+ * Personalized AI coach. Maintains conversation history per user.
+ * Injects a 90-day behavioral summary into the system prompt
+ * so the coach always has full context about the user's data.
+ *
+ * Body: { message: string, conversationId?: string }
+ *
+ * Plan restricted: Pro + Enterprise only.
+ */
+export const getChatResponseController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const { message, conversationId } = req.body;
+
+    if (
+      !message ||
+      typeof message !== "string" ||
+      message.trim().length === 0
+    ) {
+      res
+        .status(400)
+        .json({ error: "message is required and cannot be empty" });
+      return;
+    }
+
+    if (message.length > 1000) {
+      res.status(400).json({ error: "message must be under 1000 characters" });
+      return;
+    }
+
+    const result = await getAiCoachResponse(
+      req.userId!,
+      message.trim(),
+      conversationId ?? null,
+    );
+    res.json(result);
+  } catch (error) {
     next(error);
   }
 };
