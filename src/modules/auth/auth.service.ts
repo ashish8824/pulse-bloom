@@ -6,6 +6,7 @@ import {
   createUser,
   findUserByEmail,
   findUserById,
+  findUserPasswordById,
   markUserVerified,
   updateUserPassword,
   updateUserPreferences,
@@ -320,7 +321,7 @@ export const resetPassword = async (token: string, newPassword: string) => {
 };
 
 // ═════════════════════════════════════════════════════════════════
-// 10. UPDATE PREFERENCES  ← NEW
+// 10. UPDATE PREFERENCES
 //
 // Handles PATCH /api/auth/me/preferences.
 //
@@ -346,11 +347,8 @@ export const updatePreferences = async (
 ) => {
   // ── Validate: enabling mood reminder requires a time ─────────
   if (data.moodReminderOn === true) {
-    // If no time is being provided in this request, check if one is already stored
     if (data.moodReminderTime === undefined || data.moodReminderTime === null) {
       const user = await findUserById(userId);
-
-      // findUserById selects moodReminderTime — check if it's already set
       const existingTime = (user as any)?.moodReminderTime;
 
       if (!existingTime) {
@@ -366,5 +364,65 @@ export const updatePreferences = async (
   return {
     message: "Preferences updated successfully.",
     preferences: updated,
+  };
+};
+
+// ═════════════════════════════════════════════════════════════════
+// 11. CHANGE PASSWORD  ← NEW
+//
+// Handles PATCH /api/auth/me/password.
+//
+// Flow:
+//   1. Load the stored bcrypt hash via findUserPasswordById
+//      (dedicated query — does NOT pull the full user object)
+//   2. bcrypt.compare(currentPassword, hash) — reject if wrong
+//   3. bcrypt.hash(newPassword, BCRYPT_ROUNDS) — hash new password
+//   4. updateUserPassword — persist new hash
+//   5. revokeAllRefreshTokens — invalidate every session on every
+//      device so attackers with stolen tokens can no longer refresh
+//   6. Return a message telling the client to log in again
+//
+// Security notes:
+//   • We do NOT issue new tokens here intentionally.
+//     The client must log in again with the new password.
+//     This makes the password-change event visible in auth logs
+//     and forces conscious re-authentication.
+//   • currentPassword check uses constant-time bcrypt.compare to
+//     prevent timing attacks.
+//   • The "new password must differ" check is done at validation
+//     layer (schema) to save a bcrypt round before hitting the DB.
+//   • Error message "Current password is incorrect" is specific
+//     (not generic) because the user is already authenticated —
+//     there is no user-enumeration risk here.
+// ═════════════════════════════════════════════════════════════════
+export const changePassword = async (
+  userId: string,
+  currentPassword: string,
+  newPassword: string,
+) => {
+  // ── 1. Load current hash ──────────────────────────────────────
+  const user = await findUserPasswordById(userId);
+  if (!user) throw new Error("User not found");
+
+  // ── 2. Verify current password ───────────────────────────────
+  const isMatch = await bcrypt.compare(currentPassword, user.password);
+  if (!isMatch) throw new Error("Current password is incorrect");
+
+  // ── 3. Hash the new password ─────────────────────────────────
+  const hashedPassword = await bcrypt.hash(newPassword, BCRYPT_ROUNDS);
+
+  // ── 4. Persist ───────────────────────────────────────────────
+  await updateUserPassword(userId, hashedPassword);
+
+  // ── 5. Revoke all sessions ───────────────────────────────────
+  // Forces re-login on all devices. The current access token will
+  // expire naturally within its 14-minute window. Any refresh
+  // attempt after that will fail with 401 — client redirects to login.
+  await revokeAllRefreshTokens(userId);
+
+  // ── 6. Respond ───────────────────────────────────────────────
+  return {
+    message:
+      "Password changed successfully. Please log in again with your new password.",
   };
 };

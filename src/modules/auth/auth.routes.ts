@@ -12,6 +12,7 @@ import {
   forgotPasswordController,
   resetPasswordController,
   updatePreferencesController,
+  changePasswordController,
 } from "./auth.controller";
 import { protect } from "../../middlewares/auth.middleware";
 import {
@@ -92,6 +93,49 @@ const router = Router();
  *         token:           { type: string, example: "c9f3a2...64hexchars" }
  *         password:        { type: string, example: "NewPass@456" }
  *         confirmPassword: { type: string, example: "NewPass@456" }
+ *
+ *     ChangePasswordRequest:
+ *       type: object
+ *       required: [currentPassword, newPassword, confirmPassword]
+ *       description: |
+ *         All three fields are required. The user must provide their
+ *         current password to prove identity even though they are already
+ *         authenticated via Bearer token. This extra step protects against
+ *         unattended devices and stolen short-lived access tokens.
+ *       properties:
+ *         currentPassword:
+ *           type: string
+ *           example: "Ritesh@1234"
+ *           description: |
+ *             The user's existing password. Must match the stored bcrypt hash.
+ *             Strength is NOT re-validated — the user may have an older password
+ *             that predates the current strength policy.
+ *         newPassword:
+ *           type: string
+ *           example: "Ashish@8824"
+ *           description: |
+ *             The desired new password. Must satisfy all strength requirements:
+ *             - Minimum 8 characters
+ *             - At least one uppercase letter (A–Z)
+ *             - At least one lowercase letter (a–z)
+ *             - At least one digit (0–9)
+ *             - At least one special character from: @$!%*?&
+ *             Must also differ from currentPassword.
+ *         confirmPassword:
+ *           type: string
+ *           example: "Ashish@8824"
+ *           description: Must exactly match newPassword.
+ *
+ *     ChangePasswordResponse:
+ *       type: object
+ *       description: |
+ *         Returned on successful password change. No new tokens are issued —
+ *         the client must perform a fresh login with the new password.
+ *         All existing refresh tokens across all devices are revoked.
+ *       properties:
+ *         message:
+ *           type: string
+ *           example: "Password changed successfully. Please log in again with your new password."
  *
  *     UpdatePreferencesRequest:
  *       type: object
@@ -428,5 +472,150 @@ router.post("/reset-password", resetPasswordController);
  *         description: Missing or invalid access token
  */
 router.patch("/me/preferences", protect, updatePreferencesController);
+
+/**
+ * @swagger
+ * /api/auth/me/password:
+ *   patch:
+ *     summary: Change password for the authenticated user
+ *     description: |
+ *       Allows a logged-in user to change their own password by supplying
+ *       their **current** password alongside the new one.
+ *
+ *       ### Why is currentPassword required if I'm already logged in?
+ *       Even though the Bearer token proves the session is authenticated,
+ *       requiring the current password adds a critical second layer:
+ *       - Protects against **unattended unlocked devices** — anyone can
+ *         hit this screen, but only the real owner knows the password.
+ *       - Limits **stolen short-lived access token** abuse — a 14-minute
+ *         window is enough to call most endpoints, but changing the password
+ *         would require the attacker to also know the current password.
+ *
+ *       ### What happens on success?
+ *       - The new bcrypt hash is stored in the database.
+ *       - **All refresh tokens are revoked** — this forces re-login on every
+ *         other device/session (mobile, web, other browsers).
+ *       - The current access token will expire naturally within its 14-minute
+ *         window. Any refresh attempt after that returns 401.
+ *       - **No new tokens are issued** — the client must redirect to login and
+ *         authenticate again with the new password.
+ *
+ *       ### Password strength rules (newPassword)
+ *       - Minimum 8 characters
+ *       - At least one uppercase letter (A–Z)
+ *       - At least one lowercase letter (a–z)
+ *       - At least one digit (0–9)
+ *       - At least one special character: `@ $ ! % * ? &`
+ *       - Must differ from the current password
+ *
+ *       ### Example request body
+ *       ```json
+ *       {
+ *         "currentPassword": "Ritesh@1234",
+ *         "newPassword":     "Ashish@8824",
+ *         "confirmPassword": "Ashish@8824"
+ *       }
+ *       ```
+ *
+ *       ### Example success response
+ *       ```json
+ *       {
+ *         "message": "Password changed successfully. Please log in again with your new password."
+ *       }
+ *       ```
+ *
+ *       ### Difference from POST /api/auth/reset-password
+ *       | | reset-password | me/password |
+ *       |---|---|---|
+ *       | Auth required | No (uses one-time email token) | Yes (Bearer token) |
+ *       | Proves identity via | Email ownership | Current password |
+ *       | Use case | Forgot password / locked out | Voluntary change while logged in |
+ *       | Revokes sessions | Yes | Yes |
+ *       | Issues new tokens | No | No |
+ *     tags: [Auth]
+ *     security:
+ *       - bearerAuth: []
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema: { $ref: '#/components/schemas/ChangePasswordRequest' }
+ *           examples:
+ *             typical:
+ *               summary: Standard password change
+ *               value:
+ *                 currentPassword: "Ritesh@1234"
+ *                 newPassword: "Ashish@8824"
+ *                 confirmPassword: "Ashish@8824"
+ *     responses:
+ *       200:
+ *         description: |
+ *           Password changed. All sessions revoked. Client must log in again.
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ChangePasswordResponse' }
+ *             example:
+ *               message: "Password changed successfully. Please log in again with your new password."
+ *       400:
+ *         description: |
+ *           Validation or business logic error. Possible causes:
+ *           - `currentPassword` is missing or empty
+ *           - `newPassword` does not meet strength requirements
+ *           - `confirmPassword` does not match `newPassword`
+ *           - `newPassword` is the same as `currentPassword`
+ *           - `currentPassword` does not match the stored hash
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ValidationErrorResponse' }
+ *             examples:
+ *               wrongCurrent:
+ *                 summary: Wrong current password
+ *                 value:
+ *                   error: "Current password is incorrect"
+ *               mismatch:
+ *                 summary: Confirm password doesn't match
+ *                 value:
+ *                   error: "Validation failed"
+ *                   issues:
+ *                     - field: "confirmPassword"
+ *                       message: "Passwords do not match"
+ *               samePassword:
+ *                 summary: New password same as current
+ *                 value:
+ *                   error: "Validation failed"
+ *                   issues:
+ *                     - field: "newPassword"
+ *                       message: "New password must be different from your current password"
+ *               weakPassword:
+ *                 summary: New password fails strength check
+ *                 value:
+ *                   error: "Validation failed"
+ *                   issues:
+ *                     - field: "newPassword"
+ *                       message: "New password must contain uppercase, lowercase, number, and special character (@$!%*?&)"
+ *       401:
+ *         description: |
+ *           Access token missing, expired, or invalid.
+ *           The `protect` middleware rejects the request before it reaches
+ *           the controller. See error codes:
+ *           - `TOKEN_EXPIRED` — call POST /api/auth/refresh-token then retry
+ *           - `TOKEN_INVALID` — token is malformed; force re-login
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ErrorResponse' }
+ *             examples:
+ *               tokenExpired:
+ *                 summary: Access token expired
+ *                 value:
+ *                   error: "Access token expired."
+ *                   code: "TOKEN_EXPIRED"
+ *                   hint: "Call POST /api/auth/refresh-token to get a new access token."
+ *               tokenInvalid:
+ *                 summary: Token invalid or missing
+ *                 value:
+ *                   error: "Invalid access token."
+ *                   code: "TOKEN_INVALID"
+ */
+router.patch("/me/password", protect, changePasswordController);
 
 export default router;

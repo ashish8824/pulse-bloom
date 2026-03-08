@@ -51,6 +51,33 @@ export const findUserById = async (userId: string) => {
   });
 };
 
+// ─────────────────────────────────────────────────────────────────
+// FIND USER PASSWORD BY ID  ← NEW
+//
+// Used exclusively by the changePassword service function.
+//
+// Why a dedicated query instead of reusing findUserById?
+//   findUserById intentionally omits `password` — it is used by
+//   GET /api/auth/me and should never return the hash to the client
+//   layer by accident.
+//
+//   This helper selects ONLY id + password so the service can call
+//   bcrypt.compare() without touching any other user fields.
+//   Keeping the selection minimal limits the blast radius if
+//   the result is ever accidentally serialised somewhere.
+//
+// Called by: auth.service.ts → changePassword()
+// ─────────────────────────────────────────────────────────────────
+export const findUserPasswordById = async (userId: string) => {
+  return prisma.user.findUnique({
+    where: { id: userId },
+    select: {
+      id: true,
+      password: true, // bcrypt hash — compared but never returned to client
+    },
+  });
+};
+
 export const markUserVerified = async (userId: string) => {
   return prisma.user.update({
     where: { id: userId },
@@ -76,7 +103,7 @@ export const updateUserPassword = async (
 };
 
 // ─────────────────────────────────────────────────────────────────
-// UPDATE USER PREFERENCES  ← NEW
+// UPDATE USER PREFERENCES
 //
 // Used by PATCH /api/auth/me/preferences.
 //
@@ -110,7 +137,7 @@ export const updateUserPreferences = async (
 };
 
 // ─────────────────────────────────────────────────────────────────
-// FIND USERS FOR WEEKLY DIGEST  ← NEW
+// FIND USERS FOR WEEKLY DIGEST
 //
 // Called by the weekly digest cron job (Saturday 8am).
 //

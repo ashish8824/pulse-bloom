@@ -16,10 +16,6 @@ import {
 //
 // Step 1 of the Razorpay flow.
 // Creates a Razorpay order and returns its details to the frontend.
-// The frontend uses these to open the Razorpay checkout popup.
-//
-// Request body: { plan: "pro" | "enterprise" }
-// Response:     { orderId, amount, currency, keyId, plan }
 // ─────────────────────────────────────────────────────────────────
 export async function createOrderController(
   req: Request,
@@ -39,13 +35,8 @@ export async function createOrderController(
 
     const order = await createOrder(req.userId, plan as "pro" | "enterprise");
 
-    res.status(200).json({
-      ...order,
-      // Include instructions for the frontend developer on how to use these fields
-      _instructions: {
-        step: "Open Razorpay popup with these details. See billing.routes.ts for frontend code snippet.",
-      },
-    });
+    // FIX: removed _instructions field — not appropriate for production responses
+    res.status(200).json(order);
   } catch (error: any) {
     if (error.message?.includes("already on the")) {
       res
@@ -53,6 +44,8 @@ export async function createOrderController(
         .json({ error: "plan_already_active", message: error.message });
       return;
     }
+    // FIX: log the actual Razorpay error so it's visible in server logs
+    console.error("[Billing] createOrder error:", error);
     next(error);
   }
 }
@@ -65,14 +58,6 @@ export async function createOrderController(
 // Step 2 of the Razorpay flow — CRITICAL.
 // Called by the frontend after the user completes payment in the popup.
 // Verifies the HMAC-SHA256 signature and upgrades the user's plan.
-//
-// Request body:
-//   {
-//     razorpayOrderId:   "order_...",   ← from createOrder response
-//     razorpayPaymentId: "pay_...",     ← from Razorpay popup success handler
-//     razorpaySignature: "abc123...",   ← from Razorpay popup success handler
-//     plan: "pro" | "enterprise"        ← must match what was ordered
-//   }
 // ─────────────────────────────────────────────────────────────────
 export async function verifyPaymentController(
   req: Request,
@@ -83,7 +68,6 @@ export async function verifyPaymentController(
     const { razorpayOrderId, razorpayPaymentId, razorpaySignature, plan } =
       req.body;
 
-    // Validate all required fields are present
     if (!razorpayOrderId || !razorpayPaymentId || !razorpaySignature || !plan) {
       res.status(400).json({
         error: "Missing required fields",
@@ -112,7 +96,6 @@ export async function verifyPaymentController(
       message: `🎉 Welcome to PulseBloom ${plan.charAt(0).toUpperCase() + plan.slice(1)}! Your plan has been upgraded.`,
     });
   } catch (error: any) {
-    // Signature mismatch → 400, not 500
     if (error.message?.includes("verification failed")) {
       res.status(400).json({
         error: "payment_verification_failed",
@@ -120,7 +103,6 @@ export async function verifyPaymentController(
       });
       return;
     }
-    // Payment not captured → 400
     if (error.message?.includes("not captured")) {
       res.status(400).json({
         error: "payment_not_captured",
@@ -128,6 +110,7 @@ export async function verifyPaymentController(
       });
       return;
     }
+    console.error("[Billing] verifyPayment error:", error);
     next(error);
   }
 }
@@ -139,7 +122,6 @@ export async function verifyPaymentController(
 //
 // Receives Razorpay webhook events for subscription lifecycle.
 // NOT the primary payment confirmation — verifyPayment handles that.
-// This handles renewals, failures, and cancellations.
 //
 // IMPORTANT: req.body is the raw string body here (not parsed JSON).
 // The route uses express.text() so we get the raw body for
@@ -157,7 +139,6 @@ export async function webhookController(
   }
 
   try {
-    // req.body is a raw string here (express.text() middleware on this route)
     await handleWebhook(req.body as string, signature);
   } catch (err: any) {
     if (err.message === "Invalid webhook signature") {
@@ -165,7 +146,6 @@ export async function webhookController(
       res.status(400).json({ error: "Invalid webhook signature" });
       return;
     }
-    // Log processing errors but still return 200 to stop Razorpay retries
     console.error("[Billing] Webhook processing error:", err);
   }
 
@@ -176,9 +156,6 @@ export async function webhookController(
 // billingStatusController
 //
 // GET /api/billing/status
-//
-// Returns current plan, subscription status, renewal date, and
-// a link to the billing management page.
 // ─────────────────────────────────────────────────────────────────
 export async function billingStatusController(
   req: Request,
@@ -197,9 +174,6 @@ export async function billingStatusController(
 // cancelSubscriptionController
 //
 // DELETE /api/billing/subscription
-//
-// Cancels the user's subscription at end of current billing period.
-// User retains access until currentPeriodEnd, then reverts to free.
 // ─────────────────────────────────────────────────────────────────
 export async function cancelSubscriptionController(
   req: Request,
@@ -222,6 +196,7 @@ export async function cancelSubscriptionController(
         .json({ error: "no_active_subscription", message: error.message });
       return;
     }
+    console.error("[Billing] cancelSubscription error:", error);
     next(error);
   }
 }

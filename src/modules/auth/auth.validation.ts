@@ -89,7 +89,7 @@ export const resetPasswordSchema = z
   });
 
 // ─────────────────────────────────────────────────────────────────
-// UPDATE PREFERENCES  ← NEW
+// UPDATE PREFERENCES
 //
 // Used by PATCH /api/auth/me/preferences.
 //
@@ -101,9 +101,10 @@ export const resetPasswordSchema = z
 //   • Omit entirely to leave it unchanged
 //
 // Business rule enforced here via .refine():
-//   If moodReminderOn is being set to true, a moodReminderTime
-//   must already be set OR be provided in this same request.
-//   This prevents the cron from trying to match a null reminderTime.
+//   If moodReminderOn is being set to true AND moodReminderTime is
+//   explicitly null in the same request, that is a contradiction —
+//   reject immediately. The service handles the case where
+//   moodReminderOn=true but no time is in the request body (checks DB).
 // ─────────────────────────────────────────────────────────────────
 export const updatePreferencesSchema = z
   .object({
@@ -122,14 +123,7 @@ export const updatePreferencesSchema = z
   })
   .refine(
     (data) => {
-      // If explicitly turning ON mood reminders without providing a time,
-      // we need to check at the service level whether a time is already stored.
-      // The schema can only validate what's in the request body, so we allow
-      // moodReminderOn: true without moodReminderTime here — the service will
-      // reject it if no time is stored yet.
-      //
-      // However: if they send moodReminderOn: true AND moodReminderTime: null
-      // in the SAME request, that's a contradiction we can catch here.
+      // Contradiction: turning ON reminders while simultaneously clearing the time
       if (data.moodReminderOn === true && data.moodReminderTime === null) {
         return false;
       }
@@ -143,6 +137,56 @@ export const updatePreferencesSchema = z
   );
 
 // ─────────────────────────────────────────────────────────────────
+// CHANGE PASSWORD  ← NEW
+//
+// Used by PATCH /api/auth/me/password.
+//
+// Requires the user to supply their CURRENT password before accepting
+// a new one. Even though the user is already authenticated via Bearer
+// token, we re-verify identity here to protect against:
+//   • Unattended unlocked devices
+//   • Stolen short-lived access tokens (14-min window)
+//   • XSS-harvested tokens in browser environments
+//
+// Rules enforced at schema level:
+//   1. currentPassword  — any non-empty string (strength not re-validated;
+//                         the user may have an older password that predates
+//                         the current strength policy — we only compare hash)
+//   2. newPassword      — same strength rules as registration
+//   3. confirmPassword  — must match newPassword exactly
+//   4. newPassword ≠ currentPassword — prevents silent no-op changes and
+//                         saves an unnecessary bcrypt round in the service
+//
+// Business rules enforced at service level (not here):
+//   • bcrypt.compare(currentPassword, stored hash) must pass
+//   • All existing refresh tokens are revoked on success (force re-login
+//     on all other devices/sessions)
+// ─────────────────────────────────────────────────────────────────
+export const changePasswordSchema = z
+  .object({
+    currentPassword: z.string().min(1, "Current password is required"),
+
+    newPassword: z
+      .string()
+      .min(8, "New password must be at least 8 characters")
+      .regex(
+        /^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[@$!%*?&])/,
+        "New password must contain uppercase, lowercase, number, and special character (@$!%*?&)",
+      ),
+
+    confirmPassword: z.string().min(1, "Please confirm your new password"),
+  })
+  .refine((data) => data.newPassword === data.confirmPassword, {
+    message: "Passwords do not match",
+    path: ["confirmPassword"],
+  })
+  .refine((data) => data.newPassword !== data.currentPassword, {
+    // Checked after match so the user only ever sees one error at a time
+    message: "New password must be different from your current password",
+    path: ["newPassword"],
+  });
+
+// ─────────────────────────────────────────────────────────────────
 // INFERRED TYPES
 // ─────────────────────────────────────────────────────────────────
 export type RegisterInput = z.infer<typeof registerSchema>;
@@ -152,3 +196,4 @@ export type RefreshTokenInput = z.infer<typeof refreshTokenSchema>;
 export type ForgotPasswordInput = z.infer<typeof forgotPasswordSchema>;
 export type ResetPasswordInput = z.infer<typeof resetPasswordSchema>;
 export type UpdatePreferencesInput = z.infer<typeof updatePreferencesSchema>;
+export type ChangePasswordInput = z.infer<typeof changePasswordSchema>; // ← NEW

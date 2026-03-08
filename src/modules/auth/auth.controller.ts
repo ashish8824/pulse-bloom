@@ -11,6 +11,7 @@ import {
   forgotPasswordSchema,
   resetPasswordSchema,
   updatePreferencesSchema,
+  changePasswordSchema,
 } from "./auth.validation";
 import {
   registerUser,
@@ -23,6 +24,7 @@ import {
   forgotPassword,
   resetPassword,
   updatePreferences,
+  changePassword,
 } from "./auth.service";
 
 // POST /api/auth/register
@@ -159,7 +161,7 @@ export const resetPasswordController = async (
   }
 };
 
-// PATCH /api/auth/me/preferences  ← NEW
+// PATCH /api/auth/me/preferences
 //
 // Updates notification and reminder preferences for the authenticated user.
 // Requires: Authorization: Bearer <accessToken>
@@ -177,6 +179,48 @@ export const updatePreferencesController = async (
   try {
     const data = updatePreferencesSchema.parse(req.body);
     const result = await updatePreferences(req.userId!, data);
+    res.status(200).json(result);
+  } catch (error) {
+    next(error);
+  }
+};
+
+// PATCH /api/auth/me/password  ← NEW
+//
+// Changes the password for the currently authenticated user.
+// Requires: Authorization: Bearer <accessToken>
+//
+// The user must supply their CURRENT password to prove identity
+// even though they are already authenticated. This protects against:
+//   • Unattended unlocked devices
+//   • Stolen short-lived access tokens (14-min window)
+//
+// On success:
+//   • New bcrypt hash is stored
+//   • ALL refresh tokens are revoked (forces re-login on all devices)
+//   • 200 response with message — client should redirect to login
+//
+// On failure:
+//   • 400 — validation error (weak new password, passwords don't match, etc.)
+//   • 401 — missing/invalid Bearer token (middleware rejects before reaching here)
+//   • 400 — "Current password is incorrect" (wrong current password)
+//
+// Note: we intentionally do NOT issue new tokens in the response.
+// The client must perform a fresh login with the new password.
+export const changePasswordController = async (
+  req: Request,
+  res: Response,
+  next: NextFunction,
+) => {
+  try {
+    const { currentPassword, newPassword } = changePasswordSchema.parse(
+      req.body,
+    );
+    const result = await changePassword(
+      req.userId!,
+      currentPassword,
+      newPassword,
+    );
     res.status(200).json(result);
   } catch (error) {
     next(error);

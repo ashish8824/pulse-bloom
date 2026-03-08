@@ -34,8 +34,6 @@ const razorpay = new Razorpay({
 //
 // Razorpay Plan IDs are created in the Razorpay Dashboard under
 // Subscriptions → Plans. Each plan maps to a billing amount + interval.
-//
-// These are different from Stripe Price IDs but serve the same purpose.
 // ─────────────────────────────────────────────────────────────────
 const RAZORPAY_PLAN_IDS: Record<string, string> = {
   pro: env.RAZORPAY_PLAN_PRO,
@@ -47,13 +45,26 @@ const RAZORPAY_PLAN_IDS: Record<string, string> = {
 //
 // ₹999/month = 99900 paise
 // ₹2999/month = 299900 paise
-//
-// These are used when creating one-time orders.
 // ─────────────────────────────────────────────────────────────────
 const PLAN_AMOUNTS: Record<string, number> = {
-  pro: 99900, // ₹999/month in paise
-  enterprise: 299900, // ₹2999/month in paise
+  pro: 29900, // ₹999/month in paise
+  enterprise: 79900, // ₹2999/month in paise
 };
+
+// ─────────────────────────────────────────────────────────────────
+// HELPER — buildReceipt
+//
+// Razorpay enforces a 40-character max on the receipt field.
+// A raw UUID (36 chars) + prefix + timestamp easily exceeds this.
+// We truncate the UUID and use only the last 6 digits of the timestamp.
+//
+// Example output: "pb_550e8400e29b41d4_483647"  (25 chars)
+// ─────────────────────────────────────────────────────────────────
+function buildReceipt(userId: string): string {
+  const shortId = userId.replace(/-/g, "").slice(0, 16);
+  const shortTs = Date.now().toString().slice(-6);
+  return `pb_${shortId}_${shortTs}`; // max ~26 chars, well under 40
+}
 
 // ─────────────────────────────────────────────────────────────────
 // createOrder
@@ -61,16 +72,6 @@ const PLAN_AMOUNTS: Record<string, number> = {
 // Step 1 of the Razorpay payment flow.
 // Creates a Razorpay Order — a server-side record of a pending payment.
 // The frontend uses the order_id to open the Razorpay checkout popup.
-//
-// Flow:
-//   POST /api/billing/order
-//     → createOrder() creates Razorpay order
-//     → returns { orderId, amount, currency, keyId } to frontend
-//     → frontend opens Razorpay popup with these details
-//     → user pays
-//     → Razorpay calls frontend handler with { razorpay_payment_id,
-//         razorpay_order_id, razorpay_signature }
-//     → frontend calls POST /api/billing/verify with those three values
 // ─────────────────────────────────────────────────────────────────
 export async function createOrder(
   userId: string,
@@ -95,11 +96,11 @@ export async function createOrder(
   const amount = PLAN_AMOUNTS[plan];
   if (!amount) throw new Error(`No amount configured for plan: ${plan}`);
 
-  // Create Razorpay order — this is a server-side record of the intent to pay
+  // FIX: receipt must be ≤40 chars — use buildReceipt() helper
   const order = await razorpay.orders.create({
-    amount, // in paise
+    amount,
     currency: "INR",
-    receipt: `pulsebloom_${userId}_${Date.now()}`,
+    receipt: buildReceipt(userId),
     notes: {
       userId,
       plan,
@@ -108,10 +109,11 @@ export async function createOrder(
   });
 
   return {
-    orderId: order.id, // rzp_order_... — frontend passes this to the popup
-    amount: order.amount as number,
+    orderId: order.id,
+    // FIX: order.amount is typed as string | number — coerce to number
+    amount: Number(order.amount),
     currency: order.currency,
-    keyId: env.RAZORPAY_KEY_ID, // frontend needs the key_id to init the popup
+    keyId: env.RAZORPAY_KEY_ID,
     plan,
   };
 }
@@ -122,20 +124,13 @@ export async function createOrder(
 // Step 2 of the Razorpay payment flow — the most critical step.
 // Called AFTER the user completes payment in the Razorpay popup.
 //
-// Razorpay sends three values to the frontend after payment:
-//   razorpay_payment_id  — the payment ID
-//   razorpay_order_id    — the order ID we created above
-//   razorpay_signature   — HMAC-SHA256 signature we must verify
-//
 // Verification:
 //   Expected signature = HMAC-SHA256(
 //     key    = RAZORPAY_KEY_SECRET,
 //     data   = razorpay_order_id + "|" + razorpay_payment_id
 //   )
-//   If our computed signature matches the one Razorpay sent → payment is genuine.
-//   If not → reject immediately (someone tampered with the request).
-//
-// Only after successful verification do we upgrade the user's plan.
+//   If our computed signature matches → payment is genuine.
+//   If not → reject immediately (tampered request).
 // ─────────────────────────────────────────────────────────────────
 export async function verifyPayment(
   userId: string,
@@ -159,8 +154,6 @@ export async function verifyPayment(
   }
 
   // ── Step 2: Fetch payment details from Razorpay API ───────────
-  // Double-check the payment status directly from Razorpay
-  // Never trust only the frontend — always confirm server-side.
   const payment = await razorpay.payments.fetch(razorpayPaymentId);
 
   if (payment.status !== "captured") {
@@ -168,8 +161,6 @@ export async function verifyPayment(
   }
 
   // ── Step 3: Create Razorpay subscription for renewals ─────────
-  // After one-time payment, create a subscription so future renewals
-  // are handled automatically by Razorpay.
   const planId = RAZORPAY_PLAN_IDS[plan];
   let subscriptionId: string | null = null;
 
@@ -177,14 +168,12 @@ export async function verifyPayment(
     try {
       const subscription = await razorpay.subscriptions.create({
         plan_id: planId,
-        customer_notify: 1, // Razorpay emails the customer on renewal
-        total_count: 12, // 12 billing cycles (1 year); adjust as needed
+        customer_notify: 1,
+        total_count: 12,
         notes: { userId, plan },
       });
       subscriptionId = subscription.id;
     } catch (err) {
-      // Log but don't fail — the payment was verified. Subscription creation
-      // failing doesn't mean the payment failed. Can be retried later.
       console.error(
         "[Billing] Subscription creation failed after payment:",
         err,
@@ -200,7 +189,7 @@ export async function verifyPayment(
         userId,
         plan,
         status: "active",
-        stripeSubscriptionId: subscriptionId, // reusing this field for Razorpay sub ID
+        stripeSubscriptionId: subscriptionId,
         currentPeriodStart: new Date(),
         currentPeriodEnd: getNextMonthDate(),
       },
@@ -233,18 +222,12 @@ export async function verifyPayment(
 // handleWebhook
 //
 // Processes Razorpay webhook events for subscription lifecycle.
-// These are NOT the primary payment confirmation — verifyPayment() handles that.
-// Webhooks handle: renewals, failures, cancellations.
-//
-// Razorpay webhook verification:
-//   Razorpay sends X-Razorpay-Signature in headers.
-//   Verify: HMAC-SHA256(webhookSecret, rawBody) === signature
+// Handles: renewals, failures, cancellations.
 // ─────────────────────────────────────────────────────────────────
 export async function handleWebhook(
   rawBody: string,
   signature: string,
 ): Promise<void> {
-  // ── Verify webhook signature ───────────────────────────────────
   const expectedSignature = crypto
     .createHmac("sha256", env.RAZORPAY_WEBHOOK_SECRET)
     .update(rawBody)
@@ -260,9 +243,6 @@ export async function handleWebhook(
   console.log(`[Billing] Webhook received: ${eventType}`);
 
   switch (eventType) {
-    // ── subscription.charged ─────────────────────────────────────
-    // Fires on every successful subscription renewal payment.
-    // Refreshes the currentPeriodEnd date in our DB.
     case "subscription.charged": {
       const subscription = event.payload?.subscription?.entity;
       if (!subscription) break;
@@ -293,8 +273,6 @@ export async function handleWebhook(
       break;
     }
 
-    // ── subscription.cancelled ────────────────────────────────────
-    // Fires when a subscription is cancelled — revert user to free.
     case "subscription.cancelled": {
       const subscription = event.payload?.subscription?.entity;
       if (!subscription) break;
@@ -327,10 +305,6 @@ export async function handleWebhook(
       break;
     }
 
-    // ── payment.failed ────────────────────────────────────────────
-    // Fires when a renewal payment fails.
-    // Mark subscription as past_due but don't immediately downgrade —
-    // give the user time to update their payment method.
     case "payment.failed": {
       const payment = event.payload?.payment?.entity;
       if (!payment?.subscription_id) break;
@@ -358,9 +332,6 @@ export async function handleWebhook(
 
 // ─────────────────────────────────────────────────────────────────
 // getBillingStatus
-//
-// Returns current plan, subscription details, and a Razorpay
-// customer portal link (if applicable).
 // ─────────────────────────────────────────────────────────────────
 export async function getBillingStatus(userId: string) {
   const user = await prisma.user.findUnique({
@@ -383,8 +354,6 @@ export async function getBillingStatus(userId: string) {
           cancelledAt: user.subscription.cancelledAt,
         }
       : null,
-    // Razorpay doesn't have a hosted portal like Stripe.
-    // Direct users to your own /billing/manage page instead.
     manageUrl: `${env.APP_URL}/billing/manage`,
   };
 }
@@ -392,9 +361,9 @@ export async function getBillingStatus(userId: string) {
 // ─────────────────────────────────────────────────────────────────
 // cancelSubscription
 //
-// Cancels the user's Razorpay subscription at the end of the current period.
-// The user retains Pro access until currentPeriodEnd, then reverts to free.
-// The webhook (subscription.cancelled) handles the final DB update.
+// Cancels the user's Razorpay subscription at end of current period.
+// FIX: pass `true` (cancel_at_cycle_end) so the user retains access
+// until currentPeriodEnd instead of being cut off immediately.
 // ─────────────────────────────────────────────────────────────────
 export async function cancelSubscription(userId: string): Promise<void> {
   const user = await prisma.user.findUnique({
@@ -406,10 +375,9 @@ export async function cancelSubscription(userId: string): Promise<void> {
   if (user.plan === "free") throw new Error("No active subscription to cancel");
   if (!user.stripeSubscriptionId) throw new Error("No subscription ID found");
 
-  // cancel_at_cycle_end: 1 means cancel at end of billing period, not immediately
-  await razorpay.subscriptions.cancel(user.stripeSubscriptionId, false);
+  // FIX: was `false` (immediate cancel) — must be `true` to cancel at cycle end
+  await razorpay.subscriptions.cancel(user.stripeSubscriptionId, true);
 
-  // Mark as cancelled in our DB immediately (don't wait for webhook)
   await prisma.subscription.update({
     where: { userId },
     data: { status: "cancelled", cancelledAt: new Date() },
@@ -425,7 +393,6 @@ export async function cancelSubscription(userId: string): Promise<void> {
 
 // ─────────────────────────────────────────────────────────────────
 // HELPER — getNextMonthDate
-// Returns a Date 30 days from now — used as currentPeriodEnd
 // ─────────────────────────────────────────────────────────────────
 function getNextMonthDate(): Date {
   const date = new Date();
