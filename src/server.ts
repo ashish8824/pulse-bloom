@@ -6,7 +6,6 @@ import { connectMongo } from "./config/mongo";
 import { startReminderCron } from "./jobs/reminder.cron";
 import { startWeeklyDigestCron } from "./jobs/weekly.digest.cron";
 import { startNotificationCleanupCron } from "./jobs/notification.cleanup.cron"; // ← NEW
-import { execSync } from "child_process";
 
 /**
  * Start Server
@@ -16,16 +15,6 @@ import { execSync } from "child_process";
  *   2. Start cron jobs (all after DB is ready)
  *   3. Start Express
  */
-
-if (process.env.NODE_ENV === "production") {
-  try {
-    execSync("npx prisma migrate deploy", { stdio: "inherit" });
-    console.log("✅ Prisma migrations applied");
-  } catch (e) {
-    console.error("❌ Migration failed", e);
-    process.exit(1);
-  }
-}
 
 console.log("hii from server");
 const startServer = async () => {

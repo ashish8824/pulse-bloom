@@ -14,4 +14,6 @@ RUN npm install --omit=dev
 COPY --from=builder /app/dist ./dist
 RUN npx prisma generate
 EXPOSE 5000
-CMD ["node", "dist/server.js"]
+COPY start.sh ./
+RUN chmod +x start.sh
+CMD ["sh", "start.sh"]
