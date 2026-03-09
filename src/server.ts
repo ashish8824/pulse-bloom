@@ -26,6 +26,8 @@ if (process.env.NODE_ENV === "production") {
     process.exit(1);
   }
 }
+
+console.log("hii from server");
 const startServer = async () => {
   // ── 1. Connect MongoDB ──────────────────────────────────────────
   await connectMongo();
