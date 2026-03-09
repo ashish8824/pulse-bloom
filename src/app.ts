@@ -54,12 +54,20 @@ app.use(globalLimiter);
 // ─────────────────────────────────────────────────────────────────
 // SWAGGER — served via CDN to avoid ERR_EMPTY_RESPONSE on static assets
 // ─────────────────────────────────────────────────────────────────
-app.get("/api-docs/swagger.json", (req, res) => {
-  res.setHeader("Content-Type", "application/json");
-  res.send(swaggerSpec);
+
+// JSON spec endpoint — MUST be before the HTML route
+app.get("/api-docs/swagger.json", (_req, res) => {
+  try {
+    res.setHeader("Content-Type", "application/json");
+    res.setHeader("Access-Control-Allow-Origin", "*");
+    res.json(swaggerSpec);
+  } catch (err) {
+    res.status(500).json({ error: "Failed to generate swagger spec" });
+  }
 });
 
-app.get("/api-docs", (req, res) => {
+app.get("/api-docs", (_req, res) => {
+  res.setHeader("Content-Type", "text/html");
   res.send(`
 <!DOCTYPE html>
 <html>
@@ -74,7 +82,7 @@ app.get("/api-docs", (req, res) => {
     <script src="https://unpkg.com/swagger-ui-dist@5/swagger-ui-bundle.js"></script>
     <script>
       SwaggerUIBundle({
-        url: "/api-docs/swagger.json",
+        url: window.location.origin + "/api-docs/swagger.json",
         dom_id: '#swagger-ui',
         presets: [
           SwaggerUIBundle.presets.apis,
