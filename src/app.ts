@@ -44,7 +44,7 @@ app.use(
         scriptSrc: ["'self'", "'unsafe-inline'"],
         styleSrc: ["'self'", "'unsafe-inline'", "https:"],
         imgSrc: ["'self'", "data:", "https:"],
-        connectSrc: ["'self'"],
+        connectSrc: ["'self'", "*"],
       },
     },
   }),
@@ -55,7 +55,21 @@ app.use(globalLimiter);
 // ─────────────────────────────────────────────────────────────────
 // SWAGGER
 // ─────────────────────────────────────────────────────────────────
-app.use("/api-docs", swaggerUi.serve, swaggerUi.setup(swaggerSpec));
+app.use(
+  "/api-docs",
+  swaggerUi.serve,
+  swaggerUi.setup(swaggerSpec, {
+    customCss: "",
+    swaggerOptions: {
+      url: "/api-docs/swagger.json",
+    },
+  }),
+);
+
+app.get("/api-docs/swagger.json", (req, res) => {
+  res.setHeader("Content-Type", "application/json");
+  res.send(swaggerSpec);
+});
 
 // ─────────────────────────────────────────────────────────────────
 // HEALTH CHECK
