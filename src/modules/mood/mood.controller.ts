@@ -24,6 +24,8 @@ import {
   getSentimentTrends, // ← PHASE 5
 } from "./mood.service";
 
+const param = (p: string | string[]): string => (Array.isArray(p) ? p[0] : p);
+
 // ─────────────────────────────────────────────────────────────────
 // MOOD CONTROLLERS — thin HTTP adapter layer
 //
@@ -62,7 +64,7 @@ export const getMoodByIdController = async (
   next: NextFunction,
 ) => {
   try {
-    const result = await getMoodById(req.params.id, req.userId!);
+    const result = await getMoodById(param(req.params.id), req.userId!);
     res.json(result);
   } catch (error) {
     next(error);
@@ -77,7 +79,11 @@ export const updateMoodController = async (
 ) => {
   try {
     const validated = updateMoodSchema.parse(req.body);
-    const updated = await updateMood(req.params.id, req.userId!, validated);
+    const updated = await updateMood(
+      param(req.params.id),
+      req.userId!,
+      validated,
+    );
     res.json(updated);
   } catch (error) {
     next(error);
@@ -91,7 +97,7 @@ export const deleteMoodController = async (
   next: NextFunction,
 ) => {
   try {
-    const result = await deleteMood(req.params.id, req.userId!);
+    const result = await deleteMood(param(req.params.id), req.userId!);
     res.json(result);
   } catch (error) {
     next(error);

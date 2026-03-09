@@ -18,14 +18,12 @@ import { z } from "zod";
  */
 export const createMoodSchema = z.object({
   moodScore: z
-    .number({ required_error: "moodScore is required" })
+    .number()
     .int("moodScore must be an integer")
     .min(1, "moodScore must be at least 1")
     .max(5, "moodScore must be at most 5"),
 
-  emoji: z
-    .string({ required_error: "emoji is required" })
-    .min(1, "emoji cannot be empty"),
+  emoji: z.string().min(1, "emoji cannot be empty"),
 
   journalText: z
     .string()

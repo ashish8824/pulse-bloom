@@ -8,6 +8,8 @@ import {
 } from "./community.service";
 import { createPostSchema, feedQuerySchema } from "./community.validation";
 
+const param = (p: string | string[]): string => (Array.isArray(p) ? p[0] : p);
+
 /**
  * POST /api/community
  * Submit an anonymous post. userId is verified by auth middleware
@@ -57,7 +59,7 @@ export const upvoteHandler = async (
   next: NextFunction,
 ) => {
   try {
-    const result = await toggleUpvote(req.params.id, req.userId!);
+    const result = await toggleUpvote(param(req.params.id), req.userId!);
     res.status(200).json(result);
   } catch (err) {
     next(err);

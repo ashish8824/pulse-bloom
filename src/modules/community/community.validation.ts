@@ -1,4 +1,4 @@
-// src/modules/challenges/challenge.validation.ts
+// src/modules/community/community.validation.ts
 //
 // ZOD SCHEMAS — validated at the route layer before controller runs.
 // Validation errors are caught by the global error handler which
@@ -7,67 +7,45 @@
 import { z } from "zod";
 
 // ─────────────────────────────────────────────────────────────────
-// CREATE CHALLENGE
+// CREATE POST
 //
-// WHY validate startDate >= today?
-//   A challenge starting in the past immediately has missed days —
-//   bad UX and confusing progress % on day 1.
+// type: MILESTONE — celebrating a streak or habit achievement
+// type: REFLECTION — freeform thought, feeling, or observation
 //
-// WHY validate endDate > startDate?
-//   endDate is auto-computed as startDate + targetDays but we still
-//   accept it explicitly so clients can do multi-day offsets.
-//
-// targetDays: capped at 365 — prevents accidental decade-long challenges.
+// content: capped at 500 chars — keeps posts card-sized, not essays
+// tags: up to 5 lowercase slugs for filtering (e.g. "meditation")
 // ─────────────────────────────────────────────────────────────────
-export const createChallengeSchema = z
+export const createPostSchema = z
   .object({
-    title: z
+    type: z.enum(["MILESTONE", "REFLECTION"]),
+    content: z
       .string()
-      .min(3, "Title must be at least 3 characters")
-      .max(100, "Title cannot exceed 100 characters")
+      .min(1, "Post content cannot be empty")
+      .max(500, "Post content cannot exceed 500 characters")
       .trim(),
-    description: z.string().max(500).optional(),
-    habitId: z.string().uuid("Invalid habit ID").optional(),
-    targetDays: z
-      .number()
-      .int()
-      .min(1, "Challenge must be at least 1 day")
-      .max(365, "Challenge cannot exceed 365 days"),
-    startDate: z.coerce
-      .date()
-      .refine(
-        (d) => d >= new Date(new Date().toISOString().split("T")[0]),
-        "Start date cannot be in the past",
-      ),
-    isPublic: z.boolean().default(true),
+    tags: z
+      .array(z.string().min(1).max(30).toLowerCase().trim())
+      .max(5, "Maximum 5 tags per post")
+      .default([]),
   })
   .strict();
 
-export type CreateChallengeInput = z.infer<typeof createChallengeSchema>;
+export type CreatePostInput = z.infer<typeof createPostSchema>;
 
 // ─────────────────────────────────────────────────────────────────
-// JOIN CHALLENGE (by join code for private, or by ID for public)
+// FEED QUERY PARAMS
+//
+// sort: newest (default) | popular (by upvote count)
+// type: optional filter — show only MILESTONE or REFLECTION posts
+// tag: optional filter — show only posts with this tag
+// page/limit: standard pagination
 // ─────────────────────────────────────────────────────────────────
-export const joinChallengeSchema = z
-  .object({
-    joinCode: z.string().optional(), // for private challenges
-  })
-  .strict();
-
-// ─────────────────────────────────────────────────────────────────
-// MANUAL COMPLETION (for challenges without a linked habit)
-// ─────────────────────────────────────────────────────────────────
-export const completeChallengeSchema = z
-  .object({
-    note: z.string().max(200).optional(),
-  })
-  .strict();
-
-// ─────────────────────────────────────────────────────────────────
-// LIST CHALLENGES QUERY PARAMS
-// ─────────────────────────────────────────────────────────────────
-export const listChallengesSchema = z.object({
+export const feedQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(20).default(10),
-  active: z.coerce.boolean().optional(), // filter by isActive
+  sort: z.enum(["newest", "popular"]).default("newest"),
+  type: z.enum(["MILESTONE", "REFLECTION"]).optional(),
+  tag: z.string().optional(),
 });
+
+export type FeedQueryInput = z.infer<typeof feedQuerySchema>;

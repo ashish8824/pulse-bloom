@@ -71,7 +71,7 @@ export const createHabit = async (data: CreateHabitInput, userId: string) => {
     );
   }
 
-  return createHabitRecord({ ...data, userId });
+  return createHabitRecord({ ...data, title: data.title!, userId });
 };
 
 // ─────────────────────────────────────────────────────────────────

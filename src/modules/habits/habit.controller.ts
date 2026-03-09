@@ -24,6 +24,8 @@ import {
   fetchPaginatedLogs,
 } from "./habit.service";
 
+const param = (p: string | string[]): string => (Array.isArray(p) ? p[0] : p);
+
 // ─────────────────────────────────────────────────────────────────
 // CONTROLLERS — thin layer, no business logic
 // Parse input → call service → send response → forward errors
@@ -86,7 +88,11 @@ export const updateHabitController = async (
 ) => {
   try {
     const validated = updateHabitSchema.parse(req.body);
-    const updated = await updateHabit(req.params.id, req.userId!, validated);
+    const updated = await updateHabit(
+      param(req.params.id),
+      req.userId!,
+      validated,
+    );
     res.json(updated);
   } catch (error) {
     next(error);
@@ -100,7 +106,7 @@ export const archiveHabitController = async (
   next: NextFunction,
 ) => {
   try {
-    const result = await archiveHabit(req.params.id, req.userId!);
+    const result = await archiveHabit(param(req.params.id), req.userId!);
     res.json(result);
   } catch (error) {
     next(error);
@@ -114,7 +120,7 @@ export const restoreHabitController = async (
   next: NextFunction,
 ) => {
   try {
-    const result = await restoreHabit(req.params.id, req.userId!);
+    const result = await restoreHabit(param(req.params.id), req.userId!);
     res.json(result);
   } catch (error) {
     next(error);
@@ -132,7 +138,7 @@ export const completeHabitController = async (
   try {
     const validated = completeHabitSchema.parse(req.body ?? {});
     const result = await completeHabit(
-      req.params.id,
+      param(req.params.id),
       req.userId!,
       validated.note,
     );
@@ -149,7 +155,7 @@ export const undoCompletionController = async (
   next: NextFunction,
 ) => {
   try {
-    const result = await undoLastCompletion(req.params.id, req.userId!);
+    const result = await undoLastCompletion(param(req.params.id), req.userId!);
     res.json(result);
   } catch (error) {
     next(error);
@@ -179,7 +185,11 @@ export const updateReminderController = async (
 ) => {
   try {
     const validated = reminderSchema.parse(req.body);
-    const result = await updateReminder(req.params.id, req.userId!, validated);
+    const result = await updateReminder(
+      param(req.params.id),
+      req.userId!,
+      validated,
+    );
     res.json(result);
   } catch (error) {
     next(error);
@@ -195,7 +205,10 @@ export const getHabitStreakController = async (
   next: NextFunction,
 ) => {
   try {
-    const result = await calculateHabitStreak(req.params.id, req.userId!);
+    const result = await calculateHabitStreak(
+      param(req.params.id),
+      req.userId!,
+    );
     res.json(result);
   } catch (error) {
     next(error);
@@ -209,7 +222,10 @@ export const getHabitAnalyticsController = async (
   next: NextFunction,
 ) => {
   try {
-    const result = await calculateHabitAnalytics(req.params.id, req.userId!);
+    const result = await calculateHabitAnalytics(
+      param(req.params.id),
+      req.userId!,
+    );
     res.json(result);
   } catch (error) {
     next(error);
@@ -239,7 +255,7 @@ export const getMonthlyHabitSummaryController = async (
     }
 
     const result = await getMonthlyHabitSummary(
-      req.params.id,
+      param(req.params.id),
       req.userId!,
       month,
     );
@@ -268,9 +284,9 @@ export const getHabitHeatmapController = async (
     }
 
     const result = await generateHabitHeatmap(
-      req.params.id,
+      param(req.params.id),
       req.userId!,
-      Math.min(days, 730), // cap at 2 years
+      Math.min(days, 730),
     );
 
     res.json(result);
@@ -293,7 +309,7 @@ export const getPaginatedLogsController = async (
     const limit = Math.min(100, Math.max(1, Number(req.query.limit) || 20));
 
     const result = await fetchPaginatedLogs(
-      req.params.id,
+      param(req.params.id),
       req.userId!,
       page,
       limit,

@@ -250,7 +250,11 @@ export const refreshAccessToken = async (token: string) => {
     expiresAt: daysFromNow(REFRESH_TOKEN_EXPIRY_DAYS),
   });
 
-  return buildAuthResponse(stored.user, newAccessToken, newRefreshToken);
+  return buildAuthResponse(
+    { ...stored.user, plan: (stored.user as any).plan ?? "free" },
+    newAccessToken,
+    newRefreshToken,
+  );
 };
 
 // ═════════════════════════════════════════════════════════════════

@@ -9,6 +9,8 @@ import {
   markAllAsRead,
 } from "./notification.service";
 
+const param = (p: string | string[]): string => (Array.isArray(p) ? p[0] : p);
+
 // ─────────────────────────────────────────────────────────────────
 // NOTIFICATION CONTROLLERS — thin HTTP adapter layer
 //
@@ -79,7 +81,7 @@ export const markAsReadController = async (
   next: NextFunction,
 ) => {
   try {
-    const result = await markOneAsRead(req.params.id, req.userId!);
+    const result = await markOneAsRead(param(req.params.id), req.userId!);
     res.json(result);
   } catch (error) {
     next(error);

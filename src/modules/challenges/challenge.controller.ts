@@ -19,6 +19,8 @@ import {
   listChallengesSchema,
 } from "./challenge.validation";
 
+const param = (p: string | string[]): string => (Array.isArray(p) ? p[0] : p);
+
 // ─── CREATE ───────────────────────────────────────────────────────
 
 export const createChallengeHandler = async (
@@ -94,7 +96,11 @@ export const joinChallengeHandler = async (
 ) => {
   try {
     const { joinCode } = joinChallengeSchema.parse(req.body);
-    const result = await joinChallenge(req.params.id, req.userId!, joinCode);
+    const result = await joinChallenge(
+      param(req.params.id),
+      req.userId!,
+      joinCode,
+    );
     res.status(200).json(result);
   } catch (err) {
     next(err);
@@ -110,7 +116,10 @@ export const completeChallengeHandler = async (
   next: NextFunction,
 ) => {
   try {
-    const result = await markChallengeComplete(req.params.id, req.userId!);
+    const result = await markChallengeComplete(
+      param(req.params.id),
+      req.userId!,
+    );
     res.status(200).json(result);
   } catch (err) {
     next(err);
@@ -125,7 +134,7 @@ export const getLeaderboardHandler = async (
   next: NextFunction,
 ) => {
   try {
-    const result = await getLeaderboard(req.params.id, req.userId!);
+    const result = await getLeaderboard(param(req.params.id), req.userId!);
     res.status(200).json(result);
   } catch (err) {
     next(err);

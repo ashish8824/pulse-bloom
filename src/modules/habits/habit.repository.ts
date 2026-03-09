@@ -24,7 +24,7 @@ export const createHabitRecord = async (data: {
   reminderOn?: boolean;
   userId: string;
 }) => {
-  return prisma.habit.create({ data });
+  return prisma.habit.create({ data: data as any });
 };
 
 /**
@@ -112,7 +112,7 @@ export const updateHabitRecord = async (
     sortOrder?: number;
   },
 ) => {
-  return prisma.habit.update({ where: { id: habitId }, data });
+  return prisma.habit.update({ where: { id: habitId }, data: data as any });
 };
 
 /**

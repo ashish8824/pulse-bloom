@@ -4,7 +4,7 @@ COPY package*.json ./
 COPY prisma ./prisma/
 RUN npm install
 COPY . .
-RUN npm run build
+RUN npm run build 2>&1
 
 FROM node:20-alpine AS runner
 WORKDIR /app

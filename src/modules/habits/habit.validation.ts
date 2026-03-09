@@ -6,14 +6,15 @@ import { z } from "zod";
 // Must match the Prisma schema enum values exactly.
 // ─────────────────────────────────────────────────────────────────
 
-const frequencyEnum = z.enum(["daily", "weekly"], {
-  errorMap: () => ({ message: "Frequency must be 'daily' or 'weekly'" }),
-});
-
-const categoryEnum = z.enum(
-  ["health", "fitness", "learning", "mindfulness", "productivity", "custom"],
-  { errorMap: () => ({ message: "Invalid category" }) },
-);
+const frequencyEnum = z.enum(["daily", "weekly"]);
+const categoryEnum = z.enum([
+  "health",
+  "fitness",
+  "learning",
+  "mindfulness",
+  "productivity",
+  "custom",
+]);
 
 // ─────────────────────────────────────────────────────────────────
 // CREATE HABIT — POST /api/habits
@@ -159,7 +160,7 @@ export const reorderHabitsSchema = z.object({
 // Dedicated endpoint for toggling reminder without a full PATCH
 // ─────────────────────────────────────────────────────────────────
 export const reminderSchema = z.object({
-  reminderOn: z.boolean({ required_error: "reminderOn is required" }),
+  reminderOn: z.boolean(),
   reminderTime: z
     .string()
     .regex(/^([01]\d|2[0-3]):[0-5]\d$/, "Reminder time must be in HH:MM format")
