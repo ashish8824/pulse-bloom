@@ -188,7 +188,8 @@ pulsebloom-backend/
 ├── .env
 ├── .env.example
 ├── .gitignore
-├── docker-compose.yml                       # 🔮 Upcoming
+├── docker-compose.yml                       # Multi-service local + production setup
+├── Dockerfile                               # Multi-stage build (builder → runner)
 ├── tsconfig.json
 ├── package.json
 └── README.md
@@ -1536,7 +1537,11 @@ Optimised for: Flexible schemas, text-heavy storage, variable-length arrays, ano
 Interactive Swagger UI available at:
 
 ```
+# Local
 http://localhost:5000/api-docs
+
+# Production (AWS ECS Fargate — ap-south-1)
+https://<your-domain>/api-docs
 ```
 
 Features:
@@ -1545,6 +1550,84 @@ Features:
 - All request/response schemas documented with examples
 - Organised by feature module (Auth / Mood / Habits / AI Insights / Billing / Badges / Challenges / Community)
 - Real-time API testing in-browser
+
+---
+
+# 🐳 Docker Setup
+
+PulseBloom ships with a multi-stage `Dockerfile` and a `docker-compose.yml` for running the full stack locally with a single command.
+
+## Dockerfile
+
+Multi-stage build — keeps the final image lean:
+
+```
+Stage 1 (builder): installs all dependencies, compiles TypeScript → dist/
+Stage 2 (runner):  copies only dist/ and production node_modules — no dev tooling in the image
+```
+
+## docker-compose.yml
+
+Runs three services together:
+
+| Service    | Image            | Port  | Notes                                      |
+| ---------- | ---------------- | ----- | ------------------------------------------ |
+| `app`      | Local Dockerfile | 5000  | Node.js backend with compiled TS output    |
+| `postgres` | postgres:15      | 5432  | Persistent volume — data survives restarts |
+| `mongo`    | mongo:7          | 27017 | Persistent volume — data survives restarts |
+
+## Running Locally with Docker
+
+```bash
+# Build and start all services
+docker-compose up --build
+
+# Run in background
+docker-compose up -d --build
+
+# View logs
+docker-compose logs -f app
+
+# Stop everything
+docker-compose down
+```
+
+The app container waits for both postgres and mongo to be healthy before starting.
+
+---
+
+# ☁️ AWS Deployment
+
+PulseBloom is deployed on **AWS (ap-south-1 / Mumbai)** using ECS Fargate — fully serverless container hosting, no EC2 instances to manage.
+
+## Infrastructure Overview
+
+| Component          | AWS Service           | Notes                                        |
+| ------------------ | --------------------- | -------------------------------------------- |
+| Container host     | ECS Fargate           | Serverless — scales without managing servers |
+| Container registry | ECR                   | Docker images stored and pulled by ECS       |
+| PostgreSQL         | RDS PostgreSQL        | Managed DB in private subnet                 |
+| MongoDB            | MongoDB Atlas         | Cloud-hosted, connected via URI              |
+| Networking         | VPC + private subnets | App and DB in isolated network               |
+| Secrets            | ECS Task env vars     | All secrets injected at container runtime    |
+| Region             | ap-south-1 (Mumbai)   | Closest region for India-based users         |
+
+## Deployment Flow
+
+```
+Push to GitHub → Build Docker image → Tag + push to ECR → Update ECS service → New task deployed
+```
+
+The ECS service pulls the latest image from ECR and replaces the running task with zero-downtime replacement.
+
+## CI/CD
+
+GitHub Actions pipeline handles the full deployment automatically on every push to `main`:
+
+1. Build Docker image
+2. Authenticate with ECR
+3. Push image to ECR with `latest` tag
+4. Force new ECS deployment — pulls the new image and restarts the task
 
 ---
 
@@ -1703,6 +1786,9 @@ Server running on port 5000
 | Sentiment Trends Endpoint (weekly mood vs sentiment)          | ✅ Complete |
 | Smart Habit Suggestions (3 personalized, SHA-256 cached)      | ✅ Complete |
 | Personalized AI Coach (chat, MongoDB history, 90-day context) | ✅ Complete |
+| Docker Containerization (multi-stage build + docker-compose)  | ✅ Complete |
+| AWS Deployment (ECS Fargate, ECR, RDS, VPC — ap-south-1)      | ✅ Complete |
+| GitHub Actions CI/CD Pipeline                                 | ✅ Complete |
 
 ## 🔮 Upcoming — Build Order
 
@@ -1719,8 +1805,6 @@ Server running on port 5000
 | 25  | API Key Management                       | 🔧 Infrastructure |
 | 26  | Webhook System                           | 🔧 Infrastructure |
 | 27  | Public Developer Portal                  | 🔧 Infrastructure |
-| 28  | Docker Containerization                  | 🚀 Deployment     |
-| 29  | AWS Deployment                           | 🚀 Deployment     |
 
 ---
 
@@ -1755,14 +1839,6 @@ Server running on port 5000
 **26. Webhook System** — `Webhook` model: `userId`, `url`, `events[]`, `secret`, `isActive`. Events: `mood.created`, `habit.completed`, `habit.streak.milestone`, `burnout.risk.changed`, `badge.earned`. Retry 3 times with exponential backoff on failure.
 
 **27. Public Developer Portal** — Static `/developer` route: API key management UI, interactive endpoint explorer, code examples in Node.js / Python / curl, rate limit dashboard.
-
----
-
-## 🚀 Phase 8 — Deployment
-
-**28. Docker Containerization** — `docker-compose.yml` with services: `app` (Node.js), `postgres`, `mongo`, `redis`. Multi-stage Dockerfile: `builder` compiles TypeScript, `runner` copies compiled output only.
-
-**29. AWS Deployment** — ECS Fargate for the Node app, RDS PostgreSQL, DocumentDB, ElastiCache Redis. Store secrets in AWS Secrets Manager.
 
 ---
 
